@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">ET Academy Logo</title>
+  <desc id="desc">Round monochrome emblem with ET text in the center.</desc>
+  <rect width="128" height="128" rx="24" fill="#ffffff"/>
+  <circle cx="64" cy="64" r="52" fill="none" stroke="#111111" stroke-width="8"/>
+  <circle cx="64" cy="64" r="38" fill="none" stroke="#111111" stroke-width="3.5"/>
+  <path d="M39 44h34v8H47v16h23v8H47v20h-8z" fill="#111111"/>
+  <path d="M69 44h27v8H86v44h-8V52H69z" fill="#111111"/>
+  <path d="M19 64c9-22 30-37 55-37 14 0 27 5 38 13" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" opacity=".45"/>
+  <path d="M109 64c-9 22-30 37-55 37-14 0-27-5-38-13" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" opacity=".45"/>
+</svg>

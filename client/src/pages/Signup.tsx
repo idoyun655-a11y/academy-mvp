@@ -1,0 +1,458 @@
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
+import Button from "@/components/common/Button";
+import { Card } from "@/components/common/CommonComponents";
+import { theme } from "@/styles/design-system";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+
+function getRoleHome(role?: string) {
+  if (role === "admin" || role === "teacher") return "/admin";
+  if (role === "parent") return "/parent";
+  return "/student";
+}
+
+export default function Signup() {
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const [formData, setFormData] = useState({
+    role: "student" as "student" | "parent",
+    email: "",
+    password: "",
+    passwordConfirm: "",
+    name: "",
+    phone: "",
+    parentName: "",
+    parentPhone: "",
+    dateOfBirth: "",
+    address: "",
+    notes: "",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [emailAvailable, setEmailAvailable] = useState<boolean | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+
+  const checkEmailQuery = trpc.auth.checkEmail.useQuery(
+    { email: formData.email },
+    {
+      enabled:
+        formData.email.length > 0 &&
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email),
+    },
+  );
+  const signupMutation = trpc.auth.signup.useMutation();
+
+  useEffect(() => {
+    if (checkEmailQuery.data) {
+      setEmailAvailable(checkEmailQuery.data.available);
+    }
+  }, [checkEmailQuery.data]);
+
+  const updateField = (
+    key: keyof typeof formData,
+    value: string,
+  ) => {
+    setFormData((current) => ({ ...current, [key]: value }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next[key];
+      delete next.submit;
+      return next;
+    });
+  };
+
+  const validateForm = () => {
+    const nextErrors: Record<string, string> = {};
+
+    if (!formData.email) {
+      nextErrors.email = "이메일을 입력해주세요.";
+    } else if (emailAvailable === false) {
+      nextErrors.email = "이미 가입된 이메일입니다.";
+    }
+
+    if (!formData.password) {
+      nextErrors.password = "비밀번호를 입력해주세요.";
+    } else if (formData.password.length < 8) {
+      nextErrors.password = "비밀번호는 8자 이상이어야 합니다.";
+    }
+
+    if (formData.password !== formData.passwordConfirm) {
+      nextErrors.passwordConfirm = "비밀번호 확인이 일치하지 않습니다.";
+    }
+
+    if (!formData.name) {
+      nextErrors.name = "이름을 입력해주세요.";
+    }
+
+    if (formData.role === "student" && formData.parentPhone && !formData.parentName) {
+      nextErrors.parentName = "보호자 이름을 함께 입력해주세요.";
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!validateForm()) return;
+
+    setIsLoading(true);
+    try {
+      await signupMutation.mutateAsync({
+        email: formData.email,
+        password: formData.password,
+        passwordConfirm: formData.passwordConfirm,
+        name: formData.name,
+        phone: formData.phone || undefined,
+        role: formData.role,
+        parentName: formData.parentName || undefined,
+        parentPhone: formData.parentPhone || undefined,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        address: formData.address || undefined,
+        notes: formData.notes || undefined,
+      });
+
+      setSuccessMessage("회원가입이 완료되었습니다. 로그인 화면으로 이동합니다.");
+      setTimeout(() => setLocation("/login"), 1200);
+    } catch (error: any) {
+      setErrors({
+        submit: error.message || "회원가입 중 오류가 발생했습니다.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (user) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center px-4 py-12"
+        style={{ backgroundColor: theme.colors.background.primary }}
+      >
+        <div className="w-full max-w-md">
+          <Card
+            variant="elevated"
+            padding="lg"
+            className="border text-center"
+            style={{
+              backgroundColor: theme.colors.background.secondary,
+              borderColor: theme.colors.border.primary,
+            }}
+          >
+            <h2
+              className="text-2xl font-bold mb-4"
+              style={{ color: theme.colors.text.primary }}
+            >
+              이미 로그인된 상태입니다
+            </h2>
+            <p style={{ color: theme.colors.text.secondary }}>{user.email}</p>
+            <Button className="w-full mt-6" onClick={() => setLocation(getRoleHome(user.role))}>
+              대시보드로 이동
+            </Button>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center px-4 py-12"
+      style={{ backgroundColor: theme.colors.background.primary }}
+    >
+      <div className="w-full max-w-2xl">
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+              <img src="/logo.svg" alt="ET" className="h-10 w-10" />
+            <h1
+              className="text-3xl font-bold"
+              style={{ color: theme.colors.text.primary }}
+            >
+              ET영어전문학원
+            </h1>
+          </div>
+          <p className="text-lg" style={{ color: theme.colors.text.secondary }}>
+            학생 또는 부모 계정을 등록합니다.
+          </p>
+        </div>
+
+        <Card
+          variant="elevated"
+          padding="lg"
+          className="border"
+          style={{
+            backgroundColor: theme.colors.background.secondary,
+            borderColor: theme.colors.border.primary,
+          }}
+        >
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                계정 유형
+              </label>
+              <select
+                value={formData.role}
+                onChange={(event) => updateField("role", event.target.value as "student" | "parent")}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              >
+                <option value="student">학생</option>
+                <option value="parent">부모</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                이메일
+              </label>
+              <input
+                value={formData.email}
+                onChange={(event) => updateField("email", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+              {emailAvailable !== null ? (
+                <p
+                  className="text-sm mt-1"
+                  style={{
+                    color: emailAvailable
+                      ? theme.colors.status.success
+                      : theme.colors.status.error,
+                  }}
+                >
+                  {emailAvailable ? "사용 가능한 이메일입니다." : "이미 사용 중인 이메일입니다."}
+                </p>
+              ) : null}
+              {errors.email ? (
+                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                  {errors.email}
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                비밀번호
+              </label>
+              <input
+                type="password"
+                value={formData.password}
+                onChange={(event) => updateField("password", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+              {errors.password ? (
+                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                  {errors.password}
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                비밀번호 확인
+              </label>
+              <input
+                type="password"
+                value={formData.passwordConfirm}
+                onChange={(event) => updateField("passwordConfirm", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+              {errors.passwordConfirm ? (
+                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                  {errors.passwordConfirm}
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                이름
+              </label>
+              <input
+                value={formData.name}
+                onChange={(event) => updateField("name", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+              {errors.name ? (
+                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                  {errors.name}
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                연락처
+              </label>
+              <input
+                value={formData.phone}
+                onChange={(event) => updateField("phone", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+            </div>
+
+            {formData.role === "student" ? (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                    보호자 이름
+                  </label>
+                  <input
+                    value={formData.parentName}
+                    onChange={(event) => updateField("parentName", event.target.value)}
+                    className="w-full rounded-lg border px-3 py-3"
+                    style={{
+                      backgroundColor: theme.colors.background.primary,
+                      borderColor: theme.colors.border.primary,
+                      color: theme.colors.text.primary,
+                    }}
+                  />
+                  {errors.parentName ? (
+                    <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                      {errors.parentName}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                    보호자 연락처
+                  </label>
+                  <input
+                    value={formData.parentPhone}
+                    onChange={(event) => updateField("parentPhone", event.target.value)}
+                    className="w-full rounded-lg border px-3 py-3"
+                    style={{
+                      backgroundColor: theme.colors.background.primary,
+                      borderColor: theme.colors.border.primary,
+                      color: theme.colors.text.primary,
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                    생년월일
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(event) => updateField("dateOfBirth", event.target.value)}
+                    className="w-full rounded-lg border px-3 py-3"
+                    style={{
+                      backgroundColor: theme.colors.background.primary,
+                      borderColor: theme.colors.border.primary,
+                      color: theme.colors.text.primary,
+                    }}
+                  />
+                </div>
+              </>
+            ) : null}
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                주소
+              </label>
+              <input
+                value={formData.address}
+                onChange={(event) => updateField("address", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                메모
+              </label>
+              <textarea
+                value={formData.notes}
+                onChange={(event) => updateField("notes", event.target.value)}
+                rows={4}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+            </div>
+
+            {errors.submit ? (
+              <div
+                className="md:col-span-2 rounded-lg border p-3"
+                style={{
+                  backgroundColor: theme.colors.background.tertiary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.status.error,
+                }}
+              >
+                {errors.submit}
+              </div>
+            ) : null}
+
+            {successMessage ? (
+              <div
+                className="md:col-span-2 rounded-lg border p-3"
+                style={{
+                  backgroundColor: theme.colors.background.tertiary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.status.success,
+                }}
+              >
+                {successMessage}
+              </div>
+            ) : null}
+
+            <div className="md:col-span-2 flex flex-col gap-3">
+              <Button type="submit" isFullWidth disabled={isLoading || emailAvailable === false}>
+                {isLoading ? "가입 처리 중..." : "회원가입"}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setLocation("/login")}
+                className="text-sm hover:underline"
+                style={{ color: theme.colors.text.secondary }}
+              >
+                로그인으로 돌아가기
+              </button>
+            </div>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
