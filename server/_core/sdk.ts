@@ -24,6 +24,8 @@ export type SessionPayload = {
   name: string;
 };
 
+const SESSION_APP_ID = ENV.appId || "academy-system";
+
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
@@ -171,7 +173,7 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId,
+        appId: SESSION_APP_ID,
         name: options.name || "",
       },
       options
@@ -213,8 +215,7 @@ class SDKServer {
       const { openId, appId, name } = payload as Record<string, unknown>;
 
       if (
-        !isNonEmptyString(openId) ||
-        !isNonEmptyString(appId)
+        !isNonEmptyString(openId)
       ) {
         console.warn("[Auth] Session payload missing required fields");
         return null;
@@ -228,7 +229,7 @@ class SDKServer {
 
       return {
         openId: openId as string,
-        appId: appId as string,
+        appId: isNonEmptyString(appId) ? (appId as string) : SESSION_APP_ID,
         name: (name as string) || "",
       };
     } catch (error) {

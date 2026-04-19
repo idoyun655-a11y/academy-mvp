@@ -423,11 +423,17 @@ export async function ensurePrimaryAdminUser(config: {
   const current = await getUserByEmail(email);
 
   if (current) {
+    const keepExistingPassword =
+      current.role === "admin" || current.role === "superadmin";
+
     return updateUserByEmail(email, {
       openId: email,
       email,
       name: config.name,
-      password: current.password || config.passwordHash,
+      password:
+        keepExistingPassword && current.password
+          ? current.password
+          : config.passwordHash,
       role: "admin",
       loginMethod: "email",
       isActive: true,
@@ -438,11 +444,18 @@ export async function ensurePrimaryAdminUser(config: {
   for (const legacyEmail of legacyEmails) {
     const legacy = await getUserByEmail(legacyEmail);
     if (!legacy) continue;
+
+    const keepExistingPassword =
+      legacy.role === "admin" || legacy.role === "superadmin";
+
     await updateUserByEmail(legacyEmail, {
       openId: email,
       email,
       name: config.name,
-      password: legacy.password || config.passwordHash,
+      password:
+        keepExistingPassword && legacy.password
+          ? legacy.password
+          : config.passwordHash,
       role: "admin",
       loginMethod: "email",
       isActive: true,
