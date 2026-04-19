@@ -5,6 +5,7 @@ import { LIVE_QUERY_OPTIONS, formatDate } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
 import { theme } from "@/styles/design-system";
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 
 const TARGET_ROLE_OPTIONS = {
   both: ["student", "parent"],
@@ -16,6 +17,7 @@ const TARGET_ROLE_OPTIONS = {
 export default function AdminNotices() {
   const { isAuthenticated } = useAuth();
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
   const [showModal, setShowModal] = useState(false);
@@ -96,17 +98,36 @@ export default function AdminNotices() {
             >
               학생 / 학부모 페이지와 실시간으로 연결되는 공지를 관리합니다.
             </p>
+            <p
+              className="text-sm mt-2"
+              style={{ color: theme.colors.text.tertiary }}
+            >
+              카카오 공유창 자동 열기, 웹푸시, 문자 동시 발송은 메시지 센터에서 사용할 수 있습니다.
+            </p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="px-4 py-3 rounded-lg text-sm font-medium"
-            style={{
-              backgroundColor: theme.colors.accent.primary,
-              color: "#fff",
-            }}
-          >
-            공지 작성
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setLocation("/admin/notifications")}
+              className="px-4 py-3 rounded-lg text-sm font-medium"
+              style={{
+                backgroundColor: theme.colors.background.secondary,
+                color: theme.colors.text.primary,
+                border: `1px solid ${theme.colors.border.primary}`,
+              }}
+            >
+              메시지 센터
+            </button>
+            <button
+              onClick={() => setShowModal(true)}
+              className="px-4 py-3 rounded-lg text-sm font-medium"
+              style={{
+                backgroundColor: theme.colors.accent.primary,
+                color: "#fff",
+              }}
+            >
+              공지 작성
+            </button>
+          </div>
         </div>
 
         <SearchBar

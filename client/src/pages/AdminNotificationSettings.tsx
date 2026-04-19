@@ -2,11 +2,18 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import Button from "@/components/common/Button";
 import { Badge, Card, EmptyState } from "@/components/common/CommonComponents";
+import {
+  isKakaoShareConfigured,
+  isKakaoShareReady,
+  openKakaoNoticeShare,
+  preloadKakaoShareSdk,
+  type KakaoNoticeShareDraft,
+} from "@/lib/kakaoShare";
 import { LIVE_QUERY_OPTIONS, formatDateTime } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
 import { theme } from "@/styles/design-system";
-import { BellRing, MessageSquareText, Send, Smartphone } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BellRing, MessageSquareText, Send, Share2, Smartphone } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -115,6 +122,7 @@ export default function AdminNotificationSettings() {
     classId: "",
     sendImportantSms: false,
     smsRecipientKinds: ["parent"] as SmsRecipientKind[],
+    openKakaoShare: false,
   });
   const [smsForm, setSmsForm] = useState({
     scope: (selectedStudentIds.length > 0 ? "selected_students" : "saved_view") as SmsScope,
@@ -124,6 +132,9 @@ export default function AdminNotificationSettings() {
     title: "",
     message: "",
   });
+  const [isKakaoLoading, setIsKakaoLoading] = useState(false);
+  const [kakaoReady, setKakaoReady] = useState(false);
+  const [lastKakaoDraft, setLastKakaoDraft] = useState<KakaoNoticeShareDraft | null>(null);
 
   const { data: classesData } = trpc.classes.list.useQuery(
     { limit: 300, offset: 0 },
@@ -153,6 +164,36 @@ export default function AdminNotificationSettings() {
       enabled: smsForm.recipientKinds.length > 0,
     });
 
+  const kakaoConfigured = isKakaoShareConfigured();
+
+  useEffect(() => {
+    if (!kakaoConfigured) {
+      setKakaoReady(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsKakaoLoading(true);
+
+    void preloadKakaoShareSdk()
+      .then(() => {
+        if (isCancelled) return;
+        setKakaoReady(isKakaoShareReady());
+      })
+      .catch(() => {
+        if (isCancelled) return;
+        setKakaoReady(false);
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setIsKakaoLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [kakaoConfigured]);
+
   const createNoticeMutation = trpc.notices.create.useMutation({
     onSuccess: async (result) => {
       if (siteForm.sendImportantSms) {
@@ -174,6 +215,7 @@ export default function AdminNotificationSettings() {
         classId: "",
         sendImportantSms: false,
         smsRecipientKinds: ["parent"],
+        openKakaoShare: false,
       });
 
       await Promise.all([
@@ -184,7 +226,11 @@ export default function AdminNotificationSettings() {
       ]);
     },
     onError: (error) => {
-      toast.error(error.message || "사이트 알림 게시에 실패했습니다.");
+      toast.error(
+        siteForm.openKakaoShare
+          ? error.message || "공지 저장에 실패했습니다. 카카오 창에서 보내기 전에 저장 여부를 다시 확인해 주세요."
+          : error.message || "사이트 알림 게시에 실패했습니다.",
+      );
     },
   });
 
@@ -223,6 +269,29 @@ export default function AdminNotificationSettings() {
         }${siteForm.smsRecipientKinds.includes("parent") ? "보호자" : ""}`
       : "문자 미발송";
 
+  const latestClassName = siteForm.classId
+    ? classes.find((classItem: any) => String(classItem.id) === siteForm.classId)?.name ?? "선택 반"
+    : null;
+
+  const openKakaoShareWindow = (draft: KakaoNoticeShareDraft) => {
+    if (!kakaoConfigured) {
+      toast.error("카카오 JavaScript 키가 없어 공유창을 열 수 없습니다.");
+      return false;
+    }
+
+    setLastKakaoDraft(draft);
+
+    try {
+      openKakaoNoticeShare(draft);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "카카오 공유창을 자동으로 열지 못했습니다.";
+      toast.warning(`${message} 아래의 '카카오 공유 다시 열기' 버튼으로 다시 시도해 주세요.`);
+      return false;
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -239,6 +308,9 @@ export default function AdminNotificationSettings() {
           <div className="flex flex-wrap gap-2">
             <Badge variant={providerReady ? "success" : "warning"} size="sm">
               SMS {providerReady ? "연결됨" : "미설정"}
+            </Badge>
+            <Badge variant={kakaoConfigured ? "success" : "warning"} size="sm">
+              Kakao {kakaoConfigured ? (kakaoReady ? "준비됨" : isKakaoLoading ? "로딩 중" : "준비 중") : "미설정"}
             </Badge>
             {selectedCount > 0 ? (
               <Badge variant="info" size="sm">
@@ -330,6 +402,52 @@ export default function AdminNotificationSettings() {
               <label className="flex items-start gap-3">
                 <input
                   type="checkbox"
+                  checked={siteForm.openKakaoShare}
+                  onChange={(event) =>
+                    setSiteForm((current) => ({
+                      ...current,
+                      openKakaoShare: event.target.checked,
+                    }))
+                  }
+                />
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold" style={titleStyle()}>
+                    공지 등록과 함께 카카오 공유창 열기
+                  </p>
+                  <p className="text-sm" style={mutedStyle()}>
+                    등록 버튼을 누르면 이 관리자 PC에서 카카오 공유창을 같이 띄웁니다. 보낼 사람은 카카오 창에서 직접 고르면 됩니다.
+                  </p>
+                </div>
+              </label>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant={siteForm.openKakaoShare ? "info" : "default"} size="sm">
+                  {siteForm.openKakaoShare ? "등록 시 카카오 공유창 열림" : "카카오 공유 미사용"}
+                </Badge>
+                <Badge variant={kakaoConfigured ? (kakaoReady ? "success" : "warning") : "error"} size="sm">
+                  {kakaoConfigured
+                    ? kakaoReady
+                      ? "카카오 공유 준비 완료"
+                      : isKakaoLoading
+                        ? "카카오 SDK 불러오는 중"
+                        : "카카오 SDK 준비 필요"
+                    : "VITE_KAKAO_JAVASCRIPT_KEY 필요"}
+                </Badge>
+              </div>
+
+              <p className="mt-3 text-sm" style={mutedStyle()}>
+                공유되는 텍스트: 제목 + 본문
+                {latestClassName ? ` / 반: ${latestClassName}` : ""}
+              </p>
+            </div>
+
+            <div
+              className="rounded-2xl p-4"
+              style={{ backgroundColor: theme.colors.background.secondary }}
+            >
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
                   checked={siteForm.sendImportantSms}
                   onChange={(event) =>
                     setSiteForm((current) => ({
@@ -388,18 +506,25 @@ export default function AdminNotificationSettings() {
 
                   <p className="text-sm" style={mutedStyle()}>
                     현재 대상 역할: {selectedRoleConfig.label}
-                    {siteForm.classId
-                      ? ` / 반 필터: ${
-                          classes.find((classItem: any) => String(classItem.id) === siteForm.classId)
-                            ?.name ?? "선택 반"
-                        }`
-                      : " / 반 필터 없음"}
+                    {latestClassName ? ` / 반 필터: ${latestClassName}` : " / 반 필터 없음"}
                   </p>
                 </div>
               ) : null}
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
+              {lastKakaoDraft ? (
+                <Button
+                  variant="secondary"
+                  leftIcon={<Share2 className="h-4 w-4" />}
+                  onClick={() => {
+                    openKakaoShareWindow(lastKakaoDraft);
+                  }}
+                >
+                  카카오 공유 다시 열기
+                </Button>
+              ) : null}
+
               <Button
                 variant="primary"
                 leftIcon={<Send className="h-4 w-4" />}
@@ -420,9 +545,21 @@ export default function AdminNotificationSettings() {
                     return;
                   }
 
-                  createNoticeMutation.mutate({
+                  const noticeDraft = {
                     title: siteForm.title.trim(),
                     content: siteForm.content.trim(),
+                  };
+
+                  if (siteForm.openKakaoShare) {
+                    const wasOpened = openKakaoShareWindow(noticeDraft);
+                    if (wasOpened) {
+                      toast.success("카카오 공유창을 열었습니다. 카카오 창에서 받을 사람을 선택해 주세요.");
+                    }
+                  }
+
+                  createNoticeMutation.mutate({
+                    title: noticeDraft.title,
+                    content: noticeDraft.content,
                     targetRoles: selectedRoleConfig.roles,
                     targetClassIds: siteForm.classId ? [Number(siteForm.classId)] : undefined,
                     isPublished: true,

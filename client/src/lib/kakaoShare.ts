@@ -58,6 +58,21 @@ function ensureKakaoInitialized(kakao: KakaoSdk) {
   return kakao;
 }
 
+function buildKakaoSharePayload(draft: KakaoNoticeShareDraft): KakaoShareOptions {
+  const shareUrl = getResolvedShareUrl(draft.url);
+  const text = `[학원 공지] ${draft.title}\n\n${draft.content.trim()}`;
+
+  return {
+    objectType: "text",
+    text,
+    link: {
+      mobileWebUrl: shareUrl,
+      webUrl: shareUrl,
+    },
+    buttonTitle: "학원 사이트 열기",
+  };
+}
+
 function waitForExistingScript(existingScript: HTMLScriptElement) {
   return new Promise<KakaoSdk>((resolve, reject) => {
     const resolveKakao = () => {
@@ -146,18 +161,24 @@ export async function preloadKakaoShareSdk() {
   return loadKakaoSdk();
 }
 
+export function isKakaoShareReady() {
+  return Boolean(window.Kakao && kakaoJavascriptKey);
+}
+
+export function openKakaoNoticeShare(draft: KakaoNoticeShareDraft) {
+  if (typeof window === "undefined") {
+    throw new Error("브라우저 환경에서만 카카오 공유를 사용할 수 있습니다.");
+  }
+
+  if (!window.Kakao) {
+    throw new Error("카카오 공유 SDK가 아직 준비되지 않았습니다.");
+  }
+
+  const kakao = ensureKakaoInitialized(window.Kakao);
+  kakao.Share.sendDefault(buildKakaoSharePayload(draft));
+}
+
 export async function shareNoticeViaKakao(draft: KakaoNoticeShareDraft) {
   const kakao = await loadKakaoSdk();
-  const shareUrl = getResolvedShareUrl(draft.url);
-  const text = `[학원 공지] ${draft.title}\n\n${draft.content.trim()}`;
-
-  kakao.Share.sendDefault({
-    objectType: "text",
-    text,
-    link: {
-      mobileWebUrl: shareUrl,
-      webUrl: shareUrl,
-    },
-    buttonTitle: "학원 사이트 열기",
-  });
+  kakao.Share.sendDefault(buildKakaoSharePayload(draft));
 }
