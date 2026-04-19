@@ -1,6 +1,15 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLinkedPortalData } from "@/hooks/useLinkedPortalData";
 import { formatDateTime } from "@/lib/portal";
+import { trpc } from "@/lib/trpc";
+import {
+  ensurePushSubscription,
+  getExistingPushSubscription,
+  isIosLikeDevice,
+  isStandaloneDisplayMode,
+  isWebPushSupported,
+  removePushSubscription,
+} from "@/lib/webPush";
 import { theme } from "@/styles/design-system";
 import { Bell, BellRing, CheckCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -41,6 +50,15 @@ function readStoredBoolean(key: string, fallback = false) {
   return raw === "true";
 }
 
+function detectDeviceLabel() {
+  if (typeof window === "undefined") return "portal";
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  if (userAgent.includes("iphone")) return "iphone";
+  if (userAgent.includes("ipad")) return "ipad";
+  if (userAgent.includes("android")) return "android";
+  return "desktop";
+}
+
 export default function PortalNotificationBell() {
   const { user } = useAuth();
   const { snapshots } = useLinkedPortalData();
@@ -48,9 +66,16 @@ export default function PortalNotificationBell() {
   const [open, setOpen] = useState(false);
   const [readNoticeIds, setReadNoticeIds] = useState<number[]>([]);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [isToggling, setIsToggling] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedRef = useRef(false);
   const announcedIdsRef = useRef<Set<number>>(new Set());
+
+  const webPushStatus = trpc.webPush.status.useQuery(undefined, {
+    enabled: user?.role === "student" || user?.role === "parent",
+  });
+  const subscribeMutation = trpc.webPush.subscribe.useMutation();
+  const unsubscribeMutation = trpc.webPush.unsubscribe.useMutation();
 
   const notices = useMemo<PortalNotice[]>(() => {
     const deduped = new Map<number, PortalNotice>();
@@ -75,17 +100,44 @@ export default function PortalNotificationBell() {
   }, [snapshots]);
 
   const readStorageKey = user ? `portal-notice-read:${user.id}` : "";
-  const alertStorageKey = user ? `portal-browser-alerts:${user.id}` : "";
+  const alertStorageKey = user ? `portal-push-alerts:${user.id}` : "";
   const unreadCount = useMemo(
     () => notices.filter((notice) => !readNoticeIds.includes(notice.id)).length,
     [notices, readNoticeIds],
   );
 
+  const iosLike = isIosLikeDevice();
+  const standalone = isStandaloneDisplayMode();
+  const webPushSupported = isWebPushSupported();
+  const canUsePushInCurrentMode = webPushSupported && (!iosLike || standalone);
+
   useEffect(() => {
     if (!user) return;
-    setReadNoticeIds(readStoredNumberArray(readStorageKey));
-    setAlertsEnabled(readStoredBoolean(alertStorageKey, false));
-  }, [alertStorageKey, readStorageKey, user]);
+    let cancelled = false;
+
+    const syncStoredState = async () => {
+      setReadNoticeIds(readStoredNumberArray(readStorageKey));
+      const savedEnabled = readStoredBoolean(alertStorageKey, false);
+
+      if (!webPushSupported) {
+        if (!cancelled) setAlertsEnabled(savedEnabled);
+        return;
+      }
+
+      try {
+        const existingSubscription = await getExistingPushSubscription();
+        if (cancelled) return;
+        setAlertsEnabled(Boolean(existingSubscription) || savedEnabled);
+      } catch {
+        if (!cancelled) setAlertsEnabled(savedEnabled);
+      }
+    };
+
+    void syncStoredState();
+    return () => {
+      cancelled = true;
+    };
+  }, [alertStorageKey, readStorageKey, user, webPushSupported]);
 
   useEffect(() => {
     hasInitializedRef.current = false;
@@ -125,58 +177,112 @@ export default function PortalNotificationBell() {
     }
 
     if (!alertsEnabled) return;
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (window.Notification.permission !== "granted") return;
 
     const freshNotices = notices.filter((notice) => !announcedIdsRef.current.has(notice.id));
 
     freshNotices.forEach((notice) => {
       announcedIdsRef.current.add(notice.id);
-      const notification = new window.Notification(notice.title, {
-        body: notice.content,
-        tag: `portal-notice-${notice.id}`,
-      });
-      notification.onclick = () => {
-        window.focus();
-        setLocation(user?.role === "student" ? "/student/notices" : "/parent");
-        notification.close();
-      };
       toast.info(notice.title, {
         description: notice.content,
       });
     });
-  }, [alertsEnabled, notices, setLocation, user?.role]);
+  }, [alertsEnabled, notices]);
 
   const markAllRead = () => {
-    setReadNoticeIds((current) => Array.from(new Set([...current, ...notices.map((notice) => notice.id)])));
+    setReadNoticeIds((current) =>
+      Array.from(new Set([...current, ...notices.map((notice) => notice.id)])),
+    );
   };
 
   const handleToggleAlerts = async () => {
-    if (typeof window === "undefined" || !("Notification" in window)) {
-      toast.error("이 브라우저는 알림 기능을 지원하지 않습니다.");
-      return;
-    }
+    if (!user) return;
 
     if (alertsEnabled) {
-      setAlertsEnabled(false);
+      setIsToggling(true);
+      try {
+        const endpoint = await removePushSubscription();
+        if (endpoint) {
+          await unsubscribeMutation.mutateAsync({ endpoint });
+        }
+        setAlertsEnabled(false);
+        toast.success("알림을 껐습니다.");
+      } catch (error: any) {
+        toast.error(error?.message || "알림 해제 중 오류가 발생했습니다.");
+      } finally {
+        setIsToggling(false);
+      }
       return;
     }
 
-    if (window.Notification.permission === "granted") {
+    if (iosLike && !standalone) {
+      toast.info("아이폰/아이패드는 Safari에서 '홈 화면에 추가' 후 다시 열어야 알림 권한을 켤 수 있습니다.");
+      return;
+    }
+
+    if (!webPushSupported) {
+      toast.error("이 기기 또는 브라우저는 웹 푸시 알림을 지원하지 않습니다.");
+      return;
+    }
+
+    if (!webPushStatus.data?.configured || !webPushStatus.data?.publicKey) {
+      toast.error("서버 푸시 설정이 아직 완료되지 않았습니다.");
+      return;
+    }
+
+    if (typeof window !== "undefined" && window.Notification.permission === "denied") {
+      toast.error("브라우저 설정에서 알림 차단을 해제한 뒤 다시 시도해 주세요.");
+      return;
+    }
+
+    setIsToggling(true);
+    try {
+      if (
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        window.Notification.permission !== "granted"
+      ) {
+        const permission = await window.Notification.requestPermission();
+        if (permission !== "granted") {
+          toast.error("알림 권한이 허용되지 않았습니다.");
+          return;
+        }
+      }
+
+      const subscription = await ensurePushSubscription(webPushStatus.data.publicKey);
+      await subscribeMutation.mutateAsync({
+        subscription: subscription.toJSON() as {
+          endpoint: string;
+          expirationTime?: number | null;
+          keys: { p256dh: string; auth: string };
+        },
+        deviceLabel: detectDeviceLabel(),
+        userAgent: typeof navigator === "undefined" ? undefined : navigator.userAgent,
+      });
+
       setAlertsEnabled(true);
-      toast.success("브라우저 알림을 켰습니다.");
-      return;
+      toast.success("알림을 켰습니다.");
+    } catch (error: any) {
+      toast.error(error?.message || "알림 설정 중 오류가 발생했습니다.");
+    } finally {
+      setIsToggling(false);
     }
-
-    const permission = await window.Notification.requestPermission();
-    if (permission === "granted") {
-      setAlertsEnabled(true);
-      toast.success("브라우저 알림을 켰습니다.");
-      return;
-    }
-
-    toast.error("브라우저 알림 권한이 허용되지 않았습니다.");
   };
+
+  const statusText = (() => {
+    if (iosLike && !standalone) {
+      return "아이폰/아이패드는 홈 화면에 추가 후 켤 수 있습니다.";
+    }
+    if (!webPushSupported) {
+      return "이 브라우저는 푸시 알림을 지원하지 않습니다.";
+    }
+    if (!canUsePushInCurrentMode) {
+      return "현재 모드에서는 푸시 알림을 사용할 수 없습니다.";
+    }
+    if (!webPushStatus.data?.configured) {
+      return "서버 푸시 설정이 아직 없습니다.";
+    }
+    return "공지 등록 시 기기 알림으로 바로 받습니다.";
+  })();
 
   return (
     <div className="relative" ref={panelRef}>
@@ -224,7 +330,7 @@ export default function PortalNotificationBell() {
                 알림
               </p>
               <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
-                새 공지 {unreadCount}건
+                읽지 않은 공지 {unreadCount}건
               </p>
             </div>
             <button
@@ -244,17 +350,23 @@ export default function PortalNotificationBell() {
             className="mt-4 flex items-center justify-between rounded-2xl px-3 py-3"
             style={{ backgroundColor: theme.colors.background.secondary }}
           >
-            <div>
+            <div className="pr-3">
               <p className="text-sm font-medium" style={{ color: theme.colors.text.primary }}>
-                브라우저 알림
+                기기 알림
               </p>
               <p className="text-xs" style={{ color: theme.colors.text.tertiary }}>
-                사이트가 열려 있을 때 새 공지를 즉시 표시합니다.
+                {statusText}
               </p>
             </div>
             <button
-              onClick={handleToggleAlerts}
-              className="rounded-full px-3 py-1.5 text-xs font-medium"
+              onClick={() => void handleToggleAlerts()}
+              disabled={
+                isToggling ||
+                subscribeMutation.isPending ||
+                unsubscribeMutation.isPending ||
+                (!alertsEnabled && (!canUsePushInCurrentMode || !webPushStatus.data?.configured))
+              }
+              className="rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-60"
               style={{
                 backgroundColor: alertsEnabled
                   ? theme.colors.accent.primary
@@ -263,15 +375,31 @@ export default function PortalNotificationBell() {
                 border: `1px solid ${theme.colors.border.primary}`,
               }}
             >
-              {alertsEnabled ? "켜짐" : "켜기"}
+              {isToggling ? "처리 중" : alertsEnabled ? "켜짐" : "켜기"}
             </button>
           </div>
 
-          <div className="mt-4 space-y-3 max-h-[420px] overflow-y-auto">
+          {iosLike && !standalone ? (
+            <div
+              className="mt-3 rounded-2xl px-3 py-3 text-xs"
+              style={{
+                backgroundColor: theme.colors.background.secondary,
+                color: theme.colors.text.tertiary,
+              }}
+            >
+              Safari에서 공유 버튼을 누른 뒤 "홈 화면에 추가"로 설치하고, 홈 화면에서 다시 열어야
+              알림 권한이 나타납니다.
+            </div>
+          ) : null}
+
+          <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto">
             {notices.length === 0 ? (
               <div
                 className="rounded-2xl px-4 py-10 text-center text-sm"
-                style={{ backgroundColor: theme.colors.background.secondary, color: theme.colors.text.tertiary }}
+                style={{
+                  backgroundColor: theme.colors.background.secondary,
+                  color: theme.colors.text.tertiary,
+                }}
               >
                 아직 도착한 공지가 없습니다.
               </div>

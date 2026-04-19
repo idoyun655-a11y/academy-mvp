@@ -26,6 +26,7 @@ import {
 } from "./localStore";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _webPushSubscriptionsReady = false;
 
 const DEFAULT_STUDENT_META = {
   schoolLevel: "other",
@@ -161,6 +162,36 @@ export async function getDb() {
   }
 
   return _db;
+}
+
+async function ensureWebPushSubscriptionsTable() {
+  if (_webPushSubscriptionsReady) return;
+
+  const db = await getDb();
+  if (!db) {
+    _webPushSubscriptionsReady = true;
+    return;
+  }
+
+  await db.execute(
+    sql.raw(`
+      CREATE TABLE IF NOT EXISTS webPushSubscriptions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userId INT NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        userAgent TEXT NULL,
+        deviceLabel VARCHAR(120) NULL,
+        createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        lastSeenAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deletedAt TIMESTAMP NULL
+      )
+    `),
+  );
+
+  _webPushSubscriptionsReady = true;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -1364,6 +1395,8 @@ export async function upsertWebPushSubscription(data: {
     });
   }
 
+  await ensureWebPushSubscriptionsTable();
+
   const existing = await db
     .select({ id: webPushSubscriptions.id })
     .from(webPushSubscriptions)
@@ -1416,6 +1449,8 @@ export async function deleteWebPushSubscription(userId: number, endpoint: string
     });
   }
 
+  await ensureWebPushSubscriptionsTable();
+
   await db
     .update(webPushSubscriptions)
     .set({ deletedAt: new Date() })
@@ -1443,6 +1478,8 @@ export async function getWebPushSubscriptionsByUserIds(userIds: number[]) {
       (item) => isActiveRecord(item) && normalizedUserIds.includes(item.userId),
     );
   }
+
+  await ensureWebPushSubscriptionsTable();
 
   return db
     .select()
@@ -1551,11 +1588,20 @@ export async function getNoticeRecipientsForDelivery(noticeId: number) {
           ).map((row) => row.studentId),
         );
 
+  const eligibleStudentRows = activeStudentIds
+    ? studentRows.filter((student) => activeStudentIds.has(student.studentId))
+    : studentRows;
   const recipients = new Map<number, { userId: number; role: string; route: string }>();
 
   if (effectiveRoles.includes("student")) {
-    for (const student of studentRows) {
-      if (activeStudentIds && !activeStudentIds.has(student.studentId)) continue;
+    const activeStudentUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, "student"), isNull(users.deletedAt)));
+    const activeStudentUserIds = new Set(activeStudentUsers.map((user) => user.id));
+
+    for (const student of eligibleStudentRows) {
+      if (!activeStudentUserIds.has(student.userId)) continue;
       recipients.set(student.userId, {
         userId: student.userId,
         role: "student",
@@ -1565,47 +1611,41 @@ export async function getNoticeRecipientsForDelivery(noticeId: number) {
   }
 
   if (effectiveRoles.includes("parent")) {
-    for (const student of studentRows) {
-      if (activeStudentIds && !activeStudentIds.has(student.studentId)) continue;
+    const parentUsers = await db
+      .select({ id: users.id, phone: users.phone, name: users.name })
+      .from(users)
+      .where(and(eq(users.role, "parent"), isNull(users.deletedAt)));
+
+    const parentUsersByPhone = new Map<string, number[]>();
+    const parentUsersByName = new Map<string, number[]>();
+    parentUsers.forEach((parent) => {
+      if (parent.phone) {
+        const current = parentUsersByPhone.get(parent.phone) ?? [];
+        current.push(parent.id);
+        parentUsersByPhone.set(parent.phone, current);
+      }
+      if (parent.name) {
+        const current = parentUsersByName.get(parent.name) ?? [];
+        current.push(parent.id);
+        parentUsersByName.set(parent.name, current);
+      }
+    });
+
+    for (const student of eligibleStudentRows) {
+      const parentIds = new Set<number>();
       if (student.parentPhone) {
-        const parentUsers = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(
-            and(
-              eq(users.role, "parent"),
-              eq(users.phone, student.parentPhone),
-              isNull(users.deletedAt),
-            ),
-          );
-        for (const parent of parentUsers) {
-          recipients.set(parent.id, {
-            userId: parent.id,
-            role: "parent",
-            route: "/parent",
-          });
-        }
-        continue;
+        (parentUsersByPhone.get(student.parentPhone) ?? []).forEach((id) => parentIds.add(id));
+      }
+      if (student.parentName) {
+        (parentUsersByName.get(student.parentName) ?? []).forEach((id) => parentIds.add(id));
       }
 
-      if (student.parentName) {
-        const parentUsers = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(
-            and(
-              eq(users.role, "parent"),
-              eq(users.name, student.parentName),
-              isNull(users.deletedAt),
-            ),
-          );
-        for (const parent of parentUsers) {
-          recipients.set(parent.id, {
-            userId: parent.id,
-            role: "parent",
-            route: "/parent",
-          });
-        }
+      for (const parentId of parentIds) {
+        recipients.set(parentId, {
+          userId: parentId,
+          role: "parent",
+          route: "/parent",
+        });
       }
     }
   }

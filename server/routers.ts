@@ -81,6 +81,7 @@ import {
   getSmsStatus,
   listNotificationLogs,
   previewSmsAudience,
+  sendNoticeAudienceSms,
   sendBulkSmsMessage,
 } from "./notificationCenter";
 import {
@@ -1055,6 +1056,8 @@ export const appRouter = router({
           targetClassIds: z.array(z.number()).optional(),
           attachmentUrls: z.array(z.string()).optional(),
           isPublished: z.boolean().default(false),
+          sendImportantSms: z.boolean().optional(),
+          smsRecipientKinds: z.array(z.enum(["student", "parent"])).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -1068,11 +1071,36 @@ export const appRouter = router({
           isPublished: input.isPublished,
           publishedAt: input.isPublished ? new Date() : null,
         });
+        let smsDelivery: any = null;
         if (input.isPublished && result?.id) {
-          await sendNoticeWebPush(result.id);
+          void sendNoticeWebPush(result.id).catch((error) => {
+            console.error("[WebPush] Failed to deliver published notice:", error);
+          });
+
+          if (input.sendImportantSms) {
+            try {
+              smsDelivery = await sendNoticeAudienceSms({
+                title: input.title,
+                message: input.content,
+                targetRoles: input.targetRoles,
+                targetClassIds: input.targetClassIds,
+                recipientKinds: input.smsRecipientKinds,
+              });
+            } catch (error) {
+              console.error("[SMS] Failed to deliver important notice:", error);
+              smsDelivery = {
+                sentCount: 0,
+                failedCount: 0,
+                error: error instanceof Error ? error.message : "Unknown SMS error",
+              };
+            }
+          }
         }
         console.log("[API] Created notice:", result);
-        return result;
+        return {
+          ...result,
+          smsDelivery,
+        };
       }),
 
     update: adminProcedure
@@ -1096,7 +1124,9 @@ export const appRouter = router({
         }
         const result = await updateNotice(id, updatePayload);
         if (result?.id && result.isPublished && !current?.isPublished) {
-          await sendNoticeWebPush(result.id);
+          void sendNoticeWebPush(result.id).catch((error) => {
+            console.error("[WebPush] Failed to deliver published notice:", error);
+          });
         }
         console.log("[API] Updated notice:", result);
         return result;

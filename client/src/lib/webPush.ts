@@ -40,10 +40,13 @@ export async function registerPushServiceWorker() {
     throw new Error("Web push is not supported in this browser.");
   }
 
-  const existing = await navigator.serviceWorker.getRegistration("/");
-  if (existing) return existing;
+  const existing = await navigator.serviceWorker.getRegistration();
+  if (existing) {
+    return navigator.serviceWorker.ready;
+  }
 
-  return navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  return navigator.serviceWorker.ready;
 }
 
 export async function getExistingPushSubscription() {

@@ -38,7 +38,7 @@ const SITE_ROLE_OPTIONS: Array<{
 
 const SMS_SCOPE_OPTIONS: Array<{ value: SmsScope; label: string }> = [
   { value: "selected_students", label: "선택 학생" },
-  { value: "saved_view", label: "운영 뷰" },
+  { value: "saved_view", label: "저장된 뷰" },
   { value: "class", label: "반 기준" },
   { value: "all_active", label: "전체 재원생" },
 ];
@@ -76,15 +76,15 @@ function fieldStyle() {
   } as const;
 }
 
-function sectionTitleStyle() {
+function mutedStyle() {
   return {
-    color: theme.colors.text.primary,
+    color: theme.colors.text.tertiary,
   } as const;
 }
 
-function textMutedStyle() {
+function titleStyle() {
   return {
-    color: theme.colors.text.tertiary,
+    color: theme.colors.text.primary,
   } as const;
 }
 
@@ -113,6 +113,8 @@ export default function AdminNotificationSettings() {
     content: "",
     targetRole: "both" as SiteTargetRole,
     classId: "",
+    sendImportantSms: false,
+    smsRecipientKinds: ["parent"] as SmsRecipientKind[],
   });
   const [smsForm, setSmsForm] = useState({
     scope: (selectedStudentIds.length > 0 ? "selected_students" : "saved_view") as SmsScope,
@@ -152,18 +154,33 @@ export default function AdminNotificationSettings() {
     });
 
   const createNoticeMutation = trpc.notices.create.useMutation({
-    onSuccess: async () => {
-      toast.success("사이트 알림을 게시했습니다.");
+    onSuccess: async (result) => {
+      if (siteForm.sendImportantSms) {
+        if (result?.smsDelivery?.error) {
+          toast.warning(`공지 등록 완료, 문자 발송 실패: ${result.smsDelivery.error}`);
+        } else {
+          toast.success(
+            `공지 등록 완료, 문자 ${result?.smsDelivery?.sentCount ?? 0}건 발송, 실패 ${result?.smsDelivery?.failedCount ?? 0}건`,
+          );
+        }
+      } else {
+        toast.success("사이트 알림을 게시했습니다.");
+      }
+
       setSiteForm({
         title: "",
         content: "",
         targetRole: "both",
         classId: "",
+        sendImportantSms: false,
+        smsRecipientKinds: ["parent"],
       });
+
       await Promise.all([
         utils.notices.list.invalidate(),
         utils.portal.linkedStudents.invalidate(),
         utils.portal.adminSummary.invalidate(),
+        utils.notifications.logs.invalidate(),
       ]);
     },
     onError: (error) => {
@@ -173,9 +190,7 @@ export default function AdminNotificationSettings() {
 
   const sendBulkSmsMutation = trpc.notifications.sendBulkSms.useMutation({
     onSuccess: async (result) => {
-      toast.success(
-        `문자 ${result.sentCount}건 발송, 실패 ${result.failedCount}건`,
-      );
+      toast.success(`문자 ${result.sentCount}건 발송, 실패 ${result.failedCount}건`);
       setSmsForm((current) => ({
         ...current,
         title: "",
@@ -196,18 +211,28 @@ export default function AdminNotificationSettings() {
   const logs = logsData?.data ?? [];
   const selectedCount = selectedStudentIds.length;
   const providerReady = Boolean(smsStatus?.configured);
+  const selectedRoleConfig =
+    SITE_ROLE_OPTIONS.find((option) => option.value === siteForm.targetRole) ?? SITE_ROLE_OPTIONS[0];
+
+  const importantNoticeSummary =
+    siteForm.sendImportantSms && siteForm.smsRecipientKinds.length > 0
+      ? `${siteForm.smsRecipientKinds.includes("student") ? "학생" : ""}${
+          siteForm.smsRecipientKinds.includes("student") && siteForm.smsRecipientKinds.includes("parent")
+            ? " + "
+            : ""
+        }${siteForm.smsRecipientKinds.includes("parent") ? "보호자" : ""}`
+      : "문자 미발송";
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-2">
-            <h1 className="text-4xl font-bold" style={sectionTitleStyle()}>
+            <h1 className="text-4xl font-bold" style={titleStyle()}>
               메시지 센터
             </h1>
-            <p className="text-base" style={textMutedStyle()}>
-              사이트 알림과 문자/SMS를 한 화면에서 관리합니다. 사이트 알림은 포털 공지와
-              브라우저 알림으로 이어지고, 문자/SMS는 반 또는 운영 뷰 기준으로 일괄 전송합니다.
+            <p className="text-base" style={mutedStyle()}>
+              일반 공지는 사이트 공지와 푸시로 보내고, 중요한 공지는 문자까지 같이 보낼 수 있습니다.
             </p>
           </div>
 
@@ -217,7 +242,7 @@ export default function AdminNotificationSettings() {
             </Badge>
             {selectedCount > 0 ? (
               <Badge variant="info" size="sm">
-                학생 관리에서 {selectedCount}명 연동됨
+                학생 관리에서 {selectedCount}명 이동됨
               </Badge>
             ) : null}
           </div>
@@ -225,24 +250,20 @@ export default function AdminNotificationSettings() {
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <Card variant="elevated" padding="lg" className="space-y-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                    style={{ backgroundColor: `${theme.colors.status.info}22` }}
-                  >
-                    <BellRing className="h-5 w-5" style={{ color: theme.colors.status.info }} />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-semibold" style={sectionTitleStyle()}>
-                      사이트 알림
-                    </h2>
-                    <p className="text-sm" style={textMutedStyle()}>
-                      학생/부모 포털 공지로 게시되고, 브라우저 알림을 켠 사용자는 즉시 알림을 받습니다.
-                    </p>
-                  </div>
-                </div>
+            <div className="flex items-start gap-3">
+              <div
+                className="flex h-11 w-11 items-center justify-center rounded-2xl"
+                style={{ backgroundColor: `${theme.colors.status.info}22` }}
+              >
+                <BellRing className="h-5 w-5" style={{ color: theme.colors.status.info }} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold" style={titleStyle()}>
+                  사이트 알림
+                </h2>
+                <p className="text-sm" style={mutedStyle()}>
+                  포털 공지와 웹푸시를 함께 보냅니다. 중요한 공지는 문자까지 동시에 발송할 수 있습니다.
+                </p>
               </div>
             </div>
 
@@ -296,7 +317,7 @@ export default function AdminNotificationSettings() {
                 onChange={(event) =>
                   setSiteForm((current) => ({ ...current, content: event.target.value }))
                 }
-                placeholder="포털 공지와 브라우저 알림에 들어갈 메시지를 입력하세요."
+                placeholder="공지 내용"
                 className="min-h-40 rounded-lg px-3 py-3 md:col-span-2"
                 style={fieldStyle()}
               />
@@ -306,13 +327,76 @@ export default function AdminNotificationSettings() {
               className="rounded-2xl p-4"
               style={{ backgroundColor: theme.colors.background.secondary }}
             >
-              <p className="text-sm font-semibold" style={sectionTitleStyle()}>
-                게시 방식
-              </p>
-              <p className="mt-2 text-sm" style={textMutedStyle()}>
-                사이트 알림은 공지 기반으로 동작합니다. 개별 학생 지정은 문자/SMS 탭에서 처리하고,
-                사이트 알림은 역할과 반 단위로 묶어 보내는 방식이 가장 안정적입니다.
-              </p>
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={siteForm.sendImportantSms}
+                  onChange={(event) =>
+                    setSiteForm((current) => ({
+                      ...current,
+                      sendImportantSms: event.target.checked,
+                    }))
+                  }
+                />
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold" style={titleStyle()}>
+                    중요 공지로 발송
+                  </p>
+                  <p className="text-sm" style={mutedStyle()}>
+                    체크하면 같은 내용이 웹푸시와 함께 문자로도 발송됩니다. 사이트를 열어두지 않아도 받아볼 수 있습니다.
+                  </p>
+                </div>
+              </label>
+
+              {siteForm.sendImportantSms ? (
+                <div className="mt-4 space-y-3">
+                  <div className="flex flex-wrap gap-3">
+                    {(["student", "parent"] as SmsRecipientKind[]).map((kind) => {
+                      const checked = siteForm.smsRecipientKinds.includes(kind);
+                      return (
+                        <label
+                          key={kind}
+                          className="flex items-center gap-2 rounded-full px-3 py-2 text-sm"
+                          style={fieldStyle()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) =>
+                              setSiteForm((current) => ({
+                                ...current,
+                                smsRecipientKinds: event.target.checked
+                                  ? [...current.smsRecipientKinds, kind]
+                                  : current.smsRecipientKinds.filter((item) => item !== kind),
+                              }))
+                            }
+                          />
+                          <span>{kind === "student" ? "학생 번호" : "보호자 번호"}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="warning" size="sm">
+                      문자 대상: {importantNoticeSummary}
+                    </Badge>
+                    <Badge variant={providerReady ? "success" : "error"} size="sm">
+                      SMS {providerReady ? "발송 가능" : "발송 불가"}
+                    </Badge>
+                  </div>
+
+                  <p className="text-sm" style={mutedStyle()}>
+                    현재 대상 역할: {selectedRoleConfig.label}
+                    {siteForm.classId
+                      ? ` / 반 필터: ${
+                          classes.find((classItem: any) => String(classItem.id) === siteForm.classId)
+                            ?.name ?? "선택 반"
+                        }`
+                      : " / 반 필터 없음"}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex justify-end">
@@ -322,55 +406,54 @@ export default function AdminNotificationSettings() {
                 isLoading={createNoticeMutation.isPending}
                 onClick={() => {
                   if (!siteForm.title.trim() || !siteForm.content.trim()) {
-                    toast.error("제목과 내용을 먼저 입력하세요.");
+                    toast.error("제목과 내용을 입력해 주세요.");
                     return;
                   }
 
-                  const roleConfig =
-                    SITE_ROLE_OPTIONS.find((option) => option.value === siteForm.targetRole) ??
-                    SITE_ROLE_OPTIONS[0];
+                  if (siteForm.sendImportantSms && !providerReady) {
+                    toast.error("문자 발송 설정이 아직 없습니다. Railway 변수부터 넣어야 합니다.");
+                    return;
+                  }
+
+                  if (siteForm.sendImportantSms && siteForm.smsRecipientKinds.length === 0) {
+                    toast.error("중요 공지는 학생 또는 보호자 수신 대상을 선택해야 합니다.");
+                    return;
+                  }
 
                   createNoticeMutation.mutate({
                     title: siteForm.title.trim(),
                     content: siteForm.content.trim(),
-                    targetRoles: roleConfig.roles,
+                    targetRoles: selectedRoleConfig.roles,
                     targetClassIds: siteForm.classId ? [Number(siteForm.classId)] : undefined,
                     isPublished: true,
+                    sendImportantSms: siteForm.sendImportantSms,
+                    smsRecipientKinds: siteForm.sendImportantSms
+                      ? siteForm.smsRecipientKinds
+                      : undefined,
                   });
                 }}
               >
-                사이트 알림 게시
+                {siteForm.sendImportantSms ? "중요 공지 발송" : "사이트 알림 게시"}
               </Button>
             </div>
           </Card>
 
           <Card variant="elevated" padding="lg" className="space-y-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                    style={{ backgroundColor: `${theme.colors.status.warning}22` }}
-                  >
-                    <Smartphone
-                      className="h-5 w-5"
-                      style={{ color: theme.colors.status.warning }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-semibold" style={sectionTitleStyle()}>
-                      문자 / SMS
-                    </h2>
-                    <p className="text-sm" style={textMutedStyle()}>
-                      선택 학생, 저장된 운영 뷰, 반 기준으로 학생/보호자에게 한 번에 발송합니다.
-                    </p>
-                  </div>
-                </div>
+            <div className="flex items-start gap-3">
+              <div
+                className="flex h-11 w-11 items-center justify-center rounded-2xl"
+                style={{ backgroundColor: `${theme.colors.status.warning}22` }}
+              >
+                <Smartphone className="h-5 w-5" style={{ color: theme.colors.status.warning }} />
               </div>
-
-              <Badge variant={providerReady ? "success" : "warning"} size="sm">
-                {smsStatus?.label || "미설정"}
-              </Badge>
+              <div>
+                <h2 className="text-2xl font-semibold" style={titleStyle()}>
+                  문자 / SMS
+                </h2>
+                <p className="text-sm" style={mutedStyle()}>
+                  선택 학생, 저장된 뷰, 반 기준으로 문자만 따로 발송할 수 있습니다.
+                </p>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -437,13 +520,13 @@ export default function AdminNotificationSettings() {
                   style={fieldStyle()}
                 >
                   {smsForm.scope === "selected_students"
-                    ? `학생 관리에서 선택된 학생 ${selectedCount}명`
-                    : "전체 재원생 대상"}
+                    ? `학생 관리에서 선택한 학생 ${selectedCount}명`
+                    : "전체 재원생 대상으로 발송"}
                 </div>
               )}
 
               <div className="space-y-2 md:col-span-2">
-                <p className="text-sm font-semibold" style={sectionTitleStyle()}>
+                <p className="text-sm font-semibold" style={titleStyle()}>
                   수신 대상
                 </p>
                 <div className="flex flex-wrap gap-3">
@@ -467,7 +550,7 @@ export default function AdminNotificationSettings() {
                             }))
                           }
                         />
-                        <span>{kind === "student" ? "학생 휴대폰" : "보호자 휴대폰"}</span>
+                        <span>{kind === "student" ? "학생 번호" : "보호자 번호"}</span>
                       </label>
                     );
                   })}
@@ -479,7 +562,7 @@ export default function AdminNotificationSettings() {
                 onChange={(event) =>
                   setSmsForm((current) => ({ ...current, title: event.target.value }))
                 }
-                placeholder="메시지 제목(로그용, 선택)"
+                placeholder="메시지 제목(선택)"
                 className="rounded-lg px-3 py-3 md:col-span-2"
                 style={fieldStyle()}
               />
@@ -489,7 +572,7 @@ export default function AdminNotificationSettings() {
                 onChange={(event) =>
                   setSmsForm((current) => ({ ...current, message: event.target.value }))
                 }
-                placeholder="문자 내용을 입력하세요."
+                placeholder="문자 내용"
                 className="min-h-40 rounded-lg px-3 py-3 md:col-span-2"
                 style={fieldStyle()}
               />
@@ -501,11 +584,11 @@ export default function AdminNotificationSettings() {
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold" style={sectionTitleStyle()}>
+                  <p className="text-sm font-semibold" style={titleStyle()}>
                     전송 미리보기
                   </p>
-                  <p className="mt-1 text-sm" style={textMutedStyle()}>
-                    학생 {previewData?.totalStudents ?? 0}명, 수신처 {previewData?.totalRecipients ?? 0}건
+                  <p className="mt-1 text-sm" style={mutedStyle()}>
+                    학생 {previewData?.totalStudents ?? 0}명 / 수신처 {previewData?.totalRecipients ?? 0}건
                   </p>
                 </div>
                 {isPreviewFetching ? (
@@ -526,8 +609,8 @@ export default function AdminNotificationSettings() {
                   </Badge>
                 ))}
                 {!previewData?.sampleRecipients?.length ? (
-                  <span className="text-sm" style={textMutedStyle()}>
-                    현재 조건으로 잡힌 수신처가 없습니다.
+                  <span className="text-sm" style={mutedStyle()}>
+                    현재 조건으로 발송 가능한 번호가 없습니다.
                   </span>
                 ) : null}
               </div>
@@ -537,13 +620,13 @@ export default function AdminNotificationSettings() {
               className="rounded-2xl p-4"
               style={{ backgroundColor: theme.colors.background.secondary }}
             >
-              <p className="text-sm font-semibold" style={sectionTitleStyle()}>
+              <p className="text-sm font-semibold" style={titleStyle()}>
                 SMS 연결 상태
               </p>
-              <p className="mt-2 text-sm" style={textMutedStyle()}>
+              <p className="mt-2 text-sm" style={mutedStyle()}>
                 {providerReady
                   ? `현재 ${smsStatus?.label}로 실발송 가능합니다.`
-                  : "현재는 SMS 공급사 설정이 없어 실발송이 비활성화되어 있습니다. Railway 변수에 SMS_WEBHOOK_URL 또는 Twilio 값을 넣으면 바로 연결됩니다."}
+                  : "현재는 SMS 공급자 설정이 없어 문자 발송이 비활성화되어 있습니다."}
               </p>
             </div>
 
@@ -574,20 +657,19 @@ export default function AdminNotificationSettings() {
                 }
                 onClick={() => {
                   if (!smsForm.message.trim()) {
-                    toast.error("문자 내용을 입력하세요.");
+                    toast.error("문자 내용을 입력해 주세요.");
                     return;
                   }
 
                   if (smsForm.recipientKinds.length === 0) {
-                    toast.error("수신 대상을 한 개 이상 선택하세요.");
+                    toast.error("수신 대상을 하나 이상 선택해 주세요.");
                     return;
                   }
 
                   sendBulkSmsMutation.mutate({
                     scope: smsForm.scope,
                     studentIds: selectedStudentIds,
-                    savedView:
-                      smsForm.scope === "saved_view" ? smsForm.savedView : undefined,
+                    savedView: smsForm.scope === "saved_view" ? smsForm.savedView : undefined,
                     classId:
                       smsForm.scope === "class" && smsForm.classId
                         ? Number(smsForm.classId)
@@ -607,10 +689,10 @@ export default function AdminNotificationSettings() {
         <Card variant="elevated" padding="lg" className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold" style={sectionTitleStyle()}>
+              <h2 className="text-2xl font-semibold" style={titleStyle()}>
                 최근 발송 로그
               </h2>
-              <p className="text-sm" style={textMutedStyle()}>
+              <p className="text-sm" style={mutedStyle()}>
                 문자/SMS 발송 결과를 최근 순서대로 확인합니다.
               </p>
             </div>
@@ -620,7 +702,7 @@ export default function AdminNotificationSettings() {
           </div>
 
           {isLogsLoading ? (
-            <p style={textMutedStyle()}>로그를 불러오는 중입니다.</p>
+            <p style={mutedStyle()}>로그를 불러오는 중입니다.</p>
           ) : logs.length === 0 ? (
             <EmptyState title="아직 발송 로그가 없습니다" />
           ) : (
@@ -633,8 +715,8 @@ export default function AdminNotificationSettings() {
                 >
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold" style={sectionTitleStyle()}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold" style={titleStyle()}>
                           {log.recipientName || log.recipientPhone}
                         </p>
                         <Badge variant={statusBadgeVariant(log.status)} size="sm">
@@ -644,10 +726,10 @@ export default function AdminNotificationSettings() {
                           {providerLabel(log.provider)}
                         </Badge>
                       </div>
-                      <p className="text-sm" style={textMutedStyle()}>
+                      <p className="text-sm" style={mutedStyle()}>
                         {log.recipientPhone}
                       </p>
-                      <p className="text-sm whitespace-pre-wrap" style={sectionTitleStyle()}>
+                      <p className="text-sm whitespace-pre-wrap" style={titleStyle()}>
                         {log.content}
                       </p>
                       {log.errorMessage ? (
@@ -657,7 +739,7 @@ export default function AdminNotificationSettings() {
                       ) : null}
                     </div>
 
-                    <div className="text-sm text-right" style={textMutedStyle()}>
+                    <div className="text-right text-sm" style={mutedStyle()}>
                       <p>{formatDateTime(log.sentAt || log.createdAt)}</p>
                       {log.externalId ? <p className="mt-1">ID: {log.externalId}</p> : null}
                     </div>

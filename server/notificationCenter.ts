@@ -15,6 +15,14 @@ export type SmsAudienceInput = {
   recipientKinds: SmsRecipientKind[];
 };
 
+export type NoticeSmsAudienceInput = {
+  title?: string;
+  message: string;
+  targetRoles?: string[];
+  targetClassIds?: number[];
+  recipientKinds?: SmsRecipientKind[];
+};
+
 type StudentAudienceRow = {
   id: number;
   userId: number;
@@ -67,6 +75,26 @@ function uniqueBy<T>(items: T[], keyFactory: (item: T) => string) {
     seen.add(key);
     return true;
   });
+}
+
+function deriveRecipientKindsFromRoles(targetRoles?: string[]) {
+  const normalizedRoles = Array.isArray(targetRoles) ? targetRoles : [];
+  const recipientKinds = new Set<SmsRecipientKind>();
+
+  if (normalizedRoles.length === 0) {
+    recipientKinds.add("student");
+    recipientKinds.add("parent");
+    return Array.from(recipientKinds);
+  }
+
+  if (normalizedRoles.includes("student")) {
+    recipientKinds.add("student");
+  }
+  if (normalizedRoles.includes("parent")) {
+    recipientKinds.add("parent");
+  }
+
+  return Array.from(recipientKinds);
 }
 
 function getSmsProviderStatus() {
@@ -194,6 +222,37 @@ async function resolveAudienceStudents(input: SmsAudienceInput) {
   return {
     students: filteredStudents,
     parents: collections.parents,
+  };
+}
+
+async function resolveNoticeAudienceStudents(input: NoticeSmsAudienceInput) {
+  const collections = await loadAudienceCollections();
+  let filteredStudents = collections.students.filter((student) => student.lifecycleStatus !== "ended");
+
+  const targetClassIds = Array.from(
+    new Set(
+      (input.targetClassIds ?? [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    ),
+  );
+
+  if (targetClassIds.length > 0) {
+    const studentIds = new Set(
+      collections.enrollments
+        .filter((entry) => targetClassIds.includes(entry.classId))
+        .map((entry) => entry.studentId),
+    );
+    filteredStudents = filteredStudents.filter((student) => studentIds.has(student.id));
+  }
+
+  return {
+    students: filteredStudents,
+    parents: collections.parents,
+    recipientKinds:
+      input.recipientKinds && input.recipientKinds.length > 0
+        ? input.recipientKinds
+        : deriveRecipientKindsFromRoles(input.targetRoles),
   };
 }
 
@@ -379,6 +438,74 @@ async function persistNotificationLog(log: {
   });
 }
 
+async function sendSmsToResolvedRecipients(
+  recipients: SmsRecipient[],
+  payload: { title?: string; message: string },
+) {
+  if (recipients.length === 0) {
+    throw new Error("There are no recipients with phone numbers in the selected audience.");
+  }
+
+  let sentCount = 0;
+  let failedCount = 0;
+  const failures: Array<{ phone: string; reason: string }> = [];
+
+  for (let index = 0; index < recipients.length; index += 5) {
+    const chunk = recipients.slice(index, index + 5);
+    const chunkResults = await Promise.all(
+      chunk.map(async (recipient) => {
+        try {
+          const dispatchResult = await dispatchSmsMessage(recipient, payload.message, payload.title);
+          await persistNotificationLog({
+            recipientUserId: recipient.recipientUserId,
+            recipientPhone: recipient.phone,
+            status: "sent",
+            content: payload.message,
+            externalId: dispatchResult.externalId,
+            sentAt: new Date(),
+          });
+          return { success: true as const };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "Unknown SMS error";
+          await persistNotificationLog({
+            recipientUserId: recipient.recipientUserId,
+            recipientPhone: recipient.phone,
+            status: "failed",
+            content: payload.message,
+            errorMessage: reason,
+            sentAt: null,
+          });
+          return {
+            success: false as const,
+            phone: recipient.phone,
+            reason,
+          };
+        }
+      }),
+    );
+
+    chunkResults.forEach((result) => {
+      if (result.success) {
+        sentCount += 1;
+        return;
+      }
+
+      failedCount += 1;
+      failures.push({
+        phone: result.phone,
+        reason: result.reason,
+      });
+    });
+  }
+
+  return {
+    recipientCount: recipients.length,
+    sentCount,
+    failedCount,
+    failures: failures.slice(0, 20),
+  };
+}
+
 export async function getSmsStatus() {
   const provider = getSmsProviderStatus();
   return {
@@ -418,70 +545,47 @@ export async function sendBulkSmsMessage(
 
   const { students: audienceStudents, parents } = await resolveAudienceStudents(input);
   const recipients = buildSmsRecipients(audienceStudents, parents, input.recipientKinds);
-
-  if (recipients.length === 0) {
-    throw new Error("There are no recipients with phone numbers in the selected audience.");
-  }
-
-  let sentCount = 0;
-  let failedCount = 0;
-  const failures: Array<{ phone: string; reason: string }> = [];
-
-  for (let index = 0; index < recipients.length; index += 5) {
-    const chunk = recipients.slice(index, index + 5);
-    const chunkResults = await Promise.all(
-      chunk.map(async (recipient) => {
-        try {
-          const dispatchResult = await dispatchSmsMessage(recipient, input.message, input.title);
-          await persistNotificationLog({
-            recipientUserId: recipient.recipientUserId,
-            recipientPhone: recipient.phone,
-            status: "sent",
-            content: input.message,
-            externalId: dispatchResult.externalId,
-            sentAt: new Date(),
-          });
-          return { success: true as const };
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : "Unknown SMS error";
-          await persistNotificationLog({
-            recipientUserId: recipient.recipientUserId,
-            recipientPhone: recipient.phone,
-            status: "failed",
-            content: input.message,
-            errorMessage: reason,
-            sentAt: null,
-          });
-          return {
-            success: false as const,
-            phone: recipient.phone,
-            reason,
-          };
-        }
-      }),
-    );
-
-    chunkResults.forEach((result) => {
-      if (result.success) {
-        sentCount += 1;
-        return;
-      }
-
-      failedCount += 1;
-      failures.push({
-        phone: result.phone,
-        reason: result.reason,
-      });
-    });
-  }
+  const sendResult = await sendSmsToResolvedRecipients(recipients, {
+    title: input.title,
+    message: input.message,
+  });
 
   return {
     provider: provider.provider,
     requestedStudentCount: audienceStudents.length,
-    recipientCount: recipients.length,
-    sentCount,
-    failedCount,
-    failures: failures.slice(0, 20),
+    recipientCount: sendResult.recipientCount,
+    sentCount: sendResult.sentCount,
+    failedCount: sendResult.failedCount,
+    failures: sendResult.failures,
+  };
+}
+
+export async function sendNoticeAudienceSms(input: NoticeSmsAudienceInput) {
+  const provider = getSmsProviderStatus();
+  if (!provider.configured) {
+    throw new Error("SMS provider is not configured. Set SMS_WEBHOOK_URL or Twilio variables first.");
+  }
+
+  const { students: audienceStudents, parents, recipientKinds } =
+    await resolveNoticeAudienceStudents(input);
+  if (recipientKinds.length === 0) {
+    throw new Error("This notice does not target student or parent recipients for SMS.");
+  }
+
+  const recipients = buildSmsRecipients(audienceStudents, parents, recipientKinds);
+  const sendResult = await sendSmsToResolvedRecipients(recipients, {
+    title: input.title,
+    message: input.message,
+  });
+
+  return {
+    provider: provider.provider,
+    requestedStudentCount: audienceStudents.length,
+    recipientKinds,
+    recipientCount: sendResult.recipientCount,
+    sentCount: sendResult.sentCount,
+    failedCount: sendResult.failedCount,
+    failures: sendResult.failures,
   };
 }
 
