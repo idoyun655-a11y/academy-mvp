@@ -16,6 +16,7 @@ import {
   students,
   tuitionPayments,
   users,
+  webPushSubscriptions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import {
@@ -94,6 +95,55 @@ function sameDay(value: Date | string | null | undefined, target: Date) {
   const end = new Date(target);
   end.setHours(23, 59, 59, 999);
   return date >= start && date <= end;
+}
+
+function normalizeStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string");
+      }
+    } catch {
+      return value ? [value] : [];
+    }
+  }
+
+  return [];
+}
+
+function normalizeNumberArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => Number(item))
+          .filter((item) => Number.isFinite(item) && item > 0);
+      }
+    } catch {
+      const single = Number(value);
+      return Number.isFinite(single) && single > 0 ? [single] : [];
+    }
+  }
+
+  return [];
+}
+
+function getInsertedId(result: any) {
+  const rawId = result?.insertId ?? result?.[0]?.insertId ?? result?.id ?? result?.[0]?.id;
+  const parsedId = Number(rawId ?? 0);
+  return Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null;
 }
 
 export async function getDb() {
@@ -1237,7 +1287,12 @@ export async function createNotice(data: typeof notices.$inferInsert) {
     });
   }
 
-  return db.insert(notices).values(data);
+  const result = await db.insert(notices).values(data);
+  const insertedId = getInsertedId(result);
+  if (!insertedId) {
+    throw new Error("Failed to create notice");
+  }
+  return getNoticeById(insertedId);
 }
 
 export async function updateNotice(id: number, data: Partial<typeof notices.$inferInsert>) {
@@ -1260,7 +1315,302 @@ export async function updateNotice(id: number, data: Partial<typeof notices.$inf
     });
   }
 
-  return db.update(notices).set(data).where(eq(notices.id, id));
+  await db.update(notices).set(data).where(eq(notices.id, id));
+  return getNoticeById(id);
+}
+
+export async function upsertWebPushSubscription(data: {
+  userId: number;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string | null;
+  deviceLabel?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) {
+    return updateLocalStore((store) => {
+      const currentTime = nowIso();
+      const existing = store.webPushSubscriptions.find(
+        (entry) => entry.userId === data.userId && entry.endpoint === data.endpoint,
+      );
+
+      if (existing) {
+        existing.p256dh = data.p256dh;
+        existing.auth = data.auth;
+        existing.userAgent = data.userAgent ?? null;
+        existing.deviceLabel = data.deviceLabel ?? null;
+        existing.lastSeenAt = currentTime;
+        existing.updatedAt = currentTime;
+        existing.deletedAt = null;
+        return { ...existing };
+      }
+
+      const subscription = {
+        id: getNextLocalId(store, "webPushSubscriptions"),
+        userId: data.userId,
+        endpoint: data.endpoint,
+        p256dh: data.p256dh,
+        auth: data.auth,
+        userAgent: data.userAgent ?? null,
+        deviceLabel: data.deviceLabel ?? null,
+        createdAt: currentTime,
+        updatedAt: currentTime,
+        lastSeenAt: currentTime,
+        deletedAt: null,
+      };
+      store.webPushSubscriptions.push(subscription);
+      return { ...subscription };
+    });
+  }
+
+  const existing = await db
+    .select({ id: webPushSubscriptions.id })
+    .from(webPushSubscriptions)
+    .where(
+      and(
+        eq(webPushSubscriptions.userId, data.userId),
+        eq(webPushSubscriptions.endpoint, data.endpoint),
+      ),
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    await db
+      .update(webPushSubscriptions)
+      .set({
+        p256dh: data.p256dh,
+        auth: data.auth,
+        userAgent: data.userAgent ?? null,
+        deviceLabel: data.deviceLabel ?? null,
+        lastSeenAt: new Date(),
+        deletedAt: null,
+      })
+      .where(eq(webPushSubscriptions.id, existing[0].id));
+  } else {
+    await db.insert(webPushSubscriptions).values({
+      userId: data.userId,
+      endpoint: data.endpoint,
+      p256dh: data.p256dh,
+      auth: data.auth,
+      userAgent: data.userAgent ?? null,
+      deviceLabel: data.deviceLabel ?? null,
+      lastSeenAt: new Date(),
+    });
+  }
+
+  return getWebPushSubscriptionsByUserIds([data.userId]);
+}
+
+export async function deleteWebPushSubscription(userId: number, endpoint: string) {
+  const db = await getDb();
+  if (!db) {
+    return updateLocalStore((store) => {
+      const entry = store.webPushSubscriptions.find(
+        (item) => item.userId === userId && item.endpoint === endpoint && isActiveRecord(item),
+      );
+      if (!entry) return { success: false };
+      entry.deletedAt = nowIso();
+      entry.updatedAt = nowIso();
+      return { success: true };
+    });
+  }
+
+  await db
+    .update(webPushSubscriptions)
+    .set({ deletedAt: new Date() })
+    .where(
+      and(eq(webPushSubscriptions.userId, userId), eq(webPushSubscriptions.endpoint, endpoint)),
+    );
+
+  return { success: true };
+}
+
+export async function getWebPushSubscriptionsByUserIds(userIds: number[]) {
+  const normalizedUserIds = Array.from(
+    new Set(
+      userIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    ),
+  );
+  if (normalizedUserIds.length === 0) return [];
+
+  const db = await getDb();
+  if (!db) {
+    const store = await readLocalStore();
+    return store.webPushSubscriptions.filter(
+      (item) => isActiveRecord(item) && normalizedUserIds.includes(item.userId),
+    );
+  }
+
+  return db
+    .select()
+    .from(webPushSubscriptions)
+    .where(
+      and(
+        sql`${webPushSubscriptions.userId} IN (${sql.join(normalizedUserIds)})`,
+        isNull(webPushSubscriptions.deletedAt),
+      ),
+    );
+}
+
+export async function getNoticeRecipientsForDelivery(noticeId: number) {
+  const notice = await getNoticeById(noticeId);
+  if (!notice || !notice.isPublished) {
+    return [];
+  }
+
+  const targetRoles = normalizeStringArray((notice as any).targetRoles).filter(
+    (role) => role === "student" || role === "parent",
+  );
+  const effectiveRoles = targetRoles.length > 0 ? targetRoles : ["student", "parent"];
+  const targetClassIds = normalizeNumberArray((notice as any).targetClassIds);
+  const db = await getDb();
+
+  if (!db) {
+    const store = await readLocalStore();
+    const activeStudents = store.students.filter((student) => isActiveRecord(student));
+    const activeEnrollments = store.classEnrollments.filter(
+      (entry) => isActiveRecord(entry) && entry.status === "active",
+    );
+    const activeUsers = store.users.filter((user) => isActiveRecord(user));
+    const recipients = new Map<number, { userId: number; role: string; route: string }>();
+
+    const classStudentIds =
+      targetClassIds.length === 0
+        ? null
+        : new Set(
+            activeEnrollments
+              .filter((entry) => targetClassIds.includes(entry.classId))
+              .map((entry) => entry.studentId),
+          );
+
+    for (const student of activeStudents) {
+      if (classStudentIds && !classStudentIds.has(student.id)) continue;
+
+      if (effectiveRoles.includes("student")) {
+        const studentUser = activeUsers.find(
+          (user) => user.role === "student" && user.id === student.userId,
+        );
+        if (studentUser) {
+          recipients.set(studentUser.id, {
+            userId: studentUser.id,
+            role: "student",
+            route: "/student/notices",
+          });
+        }
+      }
+
+      if (effectiveRoles.includes("parent")) {
+        const parentMatches = activeUsers.filter((user) => {
+          if (user.role !== "parent") return false;
+          if (student.parentPhone && user.phone && student.parentPhone === user.phone) return true;
+          if (student.parentName && user.name && student.parentName === user.name) return true;
+          return false;
+        });
+
+        for (const parent of parentMatches) {
+          recipients.set(parent.id, {
+            userId: parent.id,
+            role: "parent",
+            route: "/parent",
+          });
+        }
+      }
+    }
+
+    return Array.from(recipients.values());
+  }
+
+  const studentRows = await db
+    .select({
+      studentId: students.id,
+      userId: students.userId,
+      parentPhone: students.parentPhone,
+      parentName: students.parentName,
+    })
+    .from(students)
+    .where(isNull(students.deletedAt));
+
+  const activeStudentIds =
+    targetClassIds.length === 0
+      ? null
+      : new Set(
+          (
+            await db
+              .select({ studentId: classEnrollments.studentId })
+              .from(classEnrollments)
+              .where(
+                and(
+                  sql`${classEnrollments.classId} IN (${sql.join(targetClassIds)})`,
+                  isNull(classEnrollments.deletedAt),
+                  eq(classEnrollments.status, "active"),
+                ),
+              )
+          ).map((row) => row.studentId),
+        );
+
+  const recipients = new Map<number, { userId: number; role: string; route: string }>();
+
+  if (effectiveRoles.includes("student")) {
+    for (const student of studentRows) {
+      if (activeStudentIds && !activeStudentIds.has(student.studentId)) continue;
+      recipients.set(student.userId, {
+        userId: student.userId,
+        role: "student",
+        route: "/student/notices",
+      });
+    }
+  }
+
+  if (effectiveRoles.includes("parent")) {
+    for (const student of studentRows) {
+      if (activeStudentIds && !activeStudentIds.has(student.studentId)) continue;
+      if (student.parentPhone) {
+        const parentUsers = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            and(
+              eq(users.role, "parent"),
+              eq(users.phone, student.parentPhone),
+              isNull(users.deletedAt),
+            ),
+          );
+        for (const parent of parentUsers) {
+          recipients.set(parent.id, {
+            userId: parent.id,
+            role: "parent",
+            route: "/parent",
+          });
+        }
+        continue;
+      }
+
+      if (student.parentName) {
+        const parentUsers = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            and(
+              eq(users.role, "parent"),
+              eq(users.name, student.parentName),
+              isNull(users.deletedAt),
+            ),
+          );
+        for (const parent of parentUsers) {
+          recipients.set(parent.id, {
+            userId: parent.id,
+            role: "parent",
+            route: "/parent",
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(recipients.values());
 }
 
 export async function getGradesByStudent(studentId: number) {

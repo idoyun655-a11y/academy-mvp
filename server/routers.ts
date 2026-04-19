@@ -83,6 +83,12 @@ import {
   previewSmsAudience,
   sendBulkSmsMessage,
 } from "./notificationCenter";
+import {
+  getWebPushStatus,
+  removePortalWebPushSubscription,
+  savePortalWebPushSubscription,
+  sendNoticeWebPush,
+} from "./webPush";
 
 function toAuthUser(user: any): AuthUser | null {
   if (!user) return null;
@@ -120,6 +126,14 @@ const studentOpsSavedViewSchema = z.enum([
 ]);
 const studentOpsSortBySchema = z.enum(["default", "name", "gradeLevel", "updatedAt", "createdAt"]);
 const studentOpsSortOrderSchema = z.enum(["asc", "desc"]);
+const webPushSubscriptionSchema = z.object({
+  endpoint: z.string().min(1),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1),
+  }),
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -599,6 +613,64 @@ export const appRouter = router({
       }),
   }),
 
+  webPush: router({
+    status: protectedProcedure.query(({ ctx }) => {
+      if (ctx.user.role !== "student" && ctx.user.role !== "parent") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "학생 또는 부모 계정에서만 알림을 사용할 수 있습니다.",
+        });
+      }
+
+      return getWebPushStatus();
+    }),
+
+    subscribe: protectedProcedure
+      .input(
+        z.object({
+          subscription: webPushSubscriptionSchema,
+          deviceLabel: z.string().max(120).optional(),
+          userAgent: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "student" && ctx.user.role !== "parent") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "학생 또는 부모 계정에서만 알림을 사용할 수 있습니다.",
+          });
+        }
+
+        return savePortalWebPushSubscription({
+          userId: ctx.user.id,
+          role: ctx.user.role,
+          subscription: input.subscription,
+          deviceLabel: input.deviceLabel,
+          userAgent: input.userAgent,
+        });
+      }),
+
+    unsubscribe: protectedProcedure
+      .input(
+        z.object({
+          endpoint: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "student" && ctx.user.role !== "parent") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "학생 또는 부모 계정에서만 알림을 사용할 수 있습니다.",
+          });
+        }
+
+        return removePortalWebPushSubscription({
+          userId: ctx.user.id,
+          endpoint: input.endpoint,
+        });
+      }),
+  }),
+
   // ============ Student Management ============
   students: router({
     list: publicProcedure
@@ -996,6 +1068,9 @@ export const appRouter = router({
           isPublished: input.isPublished,
           publishedAt: input.isPublished ? new Date() : null,
         });
+        if (input.isPublished && result?.id) {
+          await sendNoticeWebPush(result.id);
+        }
         console.log("[API] Created notice:", result);
         return result;
       }),
@@ -1013,12 +1088,16 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
+        const current = await getNoticeById(input.id);
         const { id, ...updateData } = input;
         const updatePayload: any = { ...updateData };
         if (updateData.isPublished) {
           updatePayload.publishedAt = new Date();
         }
         const result = await updateNotice(id, updatePayload);
+        if (result?.id && result.isPublished && !current?.isPublished) {
+          await sendNoticeWebPush(result.id);
+        }
         console.log("[API] Updated notice:", result);
         return result;
       }),

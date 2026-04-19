@@ -11,6 +11,7 @@ export type LocalStore = {
   classEnrollments: any[];
   attendance: any[];
   notices: any[];
+  webPushSubscriptions: any[];
   notificationTemplates: any[];
   notificationLogs: any[];
   adminLogs: any[];
@@ -33,6 +34,7 @@ const DEFAULT_STORE: LocalStore = {
     classEnrollments: 1,
     attendance: 1,
     notices: 1,
+    webPushSubscriptions: 1,
     notificationTemplates: 1,
     notificationLogs: 1,
     adminLogs: 1,
@@ -48,6 +50,7 @@ const DEFAULT_STORE: LocalStore = {
   classEnrollments: [],
   attendance: [],
   notices: [],
+  webPushSubscriptions: [],
   notificationTemplates: [],
   notificationLogs: [],
   adminLogs: [],

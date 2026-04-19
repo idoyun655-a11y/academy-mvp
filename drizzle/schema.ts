@@ -233,6 +233,26 @@ export type NotificationLog = typeof notificationLogs.$inferSelect;
 export type InsertNotificationLog = typeof notificationLogs.$inferInsert;
 
 /**
+ * WebPushSubscriptions table: 기기별 웹 푸시 구독 저장
+ */
+export const webPushSubscriptions = mysqlTable("webPushSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("userAgent"),
+  deviceLabel: varchar("deviceLabel", { length: 120 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
+});
+
+export type WebPushSubscription = typeof webPushSubscriptions.$inferSelect;
+export type InsertWebPushSubscription = typeof webPushSubscriptions.$inferInsert;
+
+/**
  * AdminLogs table: 관리자 액션 로그
  * 감사 추적(Audit Trail)을 위한 로그 기록
  */
