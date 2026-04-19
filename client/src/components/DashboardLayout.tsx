@@ -1,6 +1,7 @@
 import React, { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
+  BellRing,
   BookOpen,
   CalendarDays,
   CreditCard,
@@ -49,6 +50,7 @@ const menuItems = [
   { icon: CalendarDays, label: "성적 관리", path: "/admin/grades" },
   { icon: CreditCard, label: "수납 관리", path: "/admin/payments" },
   { icon: Settings2, label: "학원 정보", path: "/admin/settings" },
+  { icon: BellRing, label: "메시지 센터", path: "/admin/notifications" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

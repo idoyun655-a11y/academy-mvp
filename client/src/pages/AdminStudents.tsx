@@ -605,6 +605,14 @@ export default function AdminStudents() {
                   <Button variant="secondary" onClick={() => setSelectedIds([])}>
                     선택 해제
                   </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      window.location.href = `/admin/notifications?studentIds=${selectedIds.join(",")}`;
+                    }}
+                  >
+                    메시지 보내기
+                  </Button>
                   <Button onClick={handleApplyBulk} isLoading={bulkUpdateMutation.isPending}>
                     일괄 적용
                   </Button>

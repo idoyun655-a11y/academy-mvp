@@ -41,6 +41,30 @@ function toStringArray(value: unknown): string[] {
   return [];
 }
 
+function toNumberArray(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => Number(item))
+          .filter((item) => Number.isFinite(item) && item > 0);
+      }
+    } catch {
+      const single = Number(value);
+      return Number.isFinite(single) && single > 0 ? [single] : [];
+    }
+  }
+
+  return [];
+}
+
 function formatActivityTime(date: Date | string | null | undefined) {
   if (!date) return "";
   return new Date(date).toISOString();
@@ -192,13 +216,22 @@ async function getLocalStudentPortalSnapshot(studentId: number, viewerRoles: str
   const noticesForViewer = visibleNoticeRows
     .filter((notice) => {
       const targetRoles = toStringArray(notice.targetRoles);
-      return targetRoles.length === 0
-        ? true
-        : viewerRoles.some((role) => targetRoles.includes(role));
+      const targetClassIds = toNumberArray((notice as any).targetClassIds);
+      const matchesRole =
+        targetRoles.length === 0
+          ? true
+          : viewerRoles.some((role) => targetRoles.includes(role));
+      const matchesClass =
+        targetClassIds.length === 0
+          ? true
+          : activeEnrollments.some((enrollment) => targetClassIds.includes(enrollment.classId));
+
+      return matchesRole && matchesClass;
     })
     .map((notice) => ({
       ...notice,
       targetRoles: toStringArray(notice.targetRoles),
+      targetClassIds: toNumberArray((notice as any).targetClassIds),
       attachmentUrls: toStringArray(notice.attachmentUrls),
     }));
 
@@ -351,6 +384,7 @@ async function getDbStudentPortalSnapshot(studentId: number, viewerRoles: string
       title: notices.title,
       content: notices.content,
       targetRoles: notices.targetRoles,
+      targetClassIds: notices.targetClassIds,
       attachmentUrls: notices.attachmentUrls,
       createdAt: notices.createdAt,
       publishedAt: notices.publishedAt,
@@ -364,13 +398,22 @@ async function getDbStudentPortalSnapshot(studentId: number, viewerRoles: string
   const noticesForViewer = visibleNoticeRows
     .filter((notice) => {
       const targetRoles = toStringArray(notice.targetRoles);
-      return targetRoles.length === 0
-        ? true
-        : viewerRoles.some((role) => targetRoles.includes(role));
+      const targetClassIds = toNumberArray((notice as any).targetClassIds);
+      const matchesRole =
+        targetRoles.length === 0
+          ? true
+          : viewerRoles.some((role) => targetRoles.includes(role));
+      const matchesClass =
+        targetClassIds.length === 0
+          ? true
+          : Array.from(classMap.keys()).some((classId) => targetClassIds.includes(classId));
+
+      return matchesRole && matchesClass;
     })
     .map((notice) => ({
       ...notice,
       targetRoles: toStringArray(notice.targetRoles),
+      targetClassIds: toNumberArray((notice as any).targetClassIds),
       attachmentUrls: toStringArray(notice.attachmentUrls),
     }));
 

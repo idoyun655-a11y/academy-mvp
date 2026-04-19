@@ -77,6 +77,12 @@ import {
   getStudentOpsSummary,
   listStudentOps,
 } from "./studentOps";
+import {
+  getSmsStatus,
+  listNotificationLogs,
+  previewSmsAudience,
+  sendBulkSmsMessage,
+} from "./notificationCenter";
 
 function toAuthUser(user: any): AuthUser | null {
   if (!user) return null;
@@ -1085,6 +1091,51 @@ export const appRouter = router({
 
   // ============ Notifications (Mock Provider) ============
   notifications: router({
+    smsStatus: adminProcedure.query(async () => {
+      return getSmsStatus();
+    }),
+
+    previewAudience: adminProcedure
+      .input(
+        z.object({
+          scope: z.enum(["selected_students", "saved_view", "class", "all_active"]),
+          studentIds: z.array(z.number().int().positive()).default([]),
+          savedView: studentOpsSavedViewSchema.optional(),
+          classId: z.number().int().positive().optional(),
+          recipientKinds: z.array(z.enum(["student", "parent"])).min(1),
+        })
+      )
+      .query(async ({ input }) => {
+        return previewSmsAudience(input);
+      }),
+
+    sendBulkSms: adminProcedure
+      .input(
+        z.object({
+          scope: z.enum(["selected_students", "saved_view", "class", "all_active"]),
+          studentIds: z.array(z.number().int().positive()).default([]),
+          savedView: studentOpsSavedViewSchema.optional(),
+          classId: z.number().int().positive().optional(),
+          recipientKinds: z.array(z.enum(["student", "parent"])).min(1),
+          title: z.string().max(120).optional(),
+          message: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return sendBulkSmsMessage(input);
+      }),
+
+    logs: adminProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).default(30),
+          offset: z.number().min(0).default(0),
+        })
+      )
+      .query(async ({ input }) => {
+        return listNotificationLogs(input);
+      }),
+
     send: publicProcedure
       .input(
         z.object({

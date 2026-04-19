@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import Footer from "@/components/Footer";
+import PortalNotificationBell from "@/components/PortalNotificationBell";
 import { theme } from "@/styles/design-system";
 import { useLocation } from "wouter";
 
@@ -65,6 +66,7 @@ export default function PortalLayout({
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <PortalNotificationBell />
               <div className="text-right">
                 <p
                   className="text-sm font-medium"
