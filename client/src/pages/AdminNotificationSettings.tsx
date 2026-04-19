@@ -122,7 +122,6 @@ export default function AdminNotificationSettings() {
     classId: "",
     sendImportantSms: false,
     smsRecipientKinds: ["parent"] as SmsRecipientKind[],
-    openKakaoShare: false,
   });
   const [smsForm, setSmsForm] = useState({
     scope: (selectedStudentIds.length > 0 ? "selected_students" : "saved_view") as SmsScope,
@@ -215,7 +214,6 @@ export default function AdminNotificationSettings() {
         classId: "",
         sendImportantSms: false,
         smsRecipientKinds: ["parent"],
-        openKakaoShare: false,
       });
 
       await Promise.all([
@@ -226,11 +224,7 @@ export default function AdminNotificationSettings() {
       ]);
     },
     onError: (error) => {
-      toast.error(
-        siteForm.openKakaoShare
-          ? error.message || "공지 저장에 실패했습니다. 카카오 창에서 보내기 전에 저장 여부를 다시 확인해 주세요."
-          : error.message || "사이트 알림 게시에 실패했습니다.",
-      );
+      toast.error(error.message || "사이트 알림 게시에 실패했습니다.");
     },
   });
 
@@ -272,6 +266,11 @@ export default function AdminNotificationSettings() {
   const latestClassName = siteForm.classId
     ? classes.find((classItem: any) => String(classItem.id) === siteForm.classId)?.name ?? "선택 반"
     : null;
+
+  const buildNoticeDraft = (): KakaoNoticeShareDraft => ({
+    title: siteForm.title.trim(),
+    content: siteForm.content.trim(),
+  });
 
   const openKakaoShareWindow = (draft: KakaoNoticeShareDraft) => {
     if (!kakaoConfigured) {
@@ -399,31 +398,16 @@ export default function AdminNotificationSettings() {
               className="rounded-2xl p-4"
               style={{ backgroundColor: theme.colors.background.secondary }}
             >
-              <label className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={siteForm.openKakaoShare}
-                  onChange={(event) =>
-                    setSiteForm((current) => ({
-                      ...current,
-                      openKakaoShare: event.target.checked,
-                    }))
-                  }
-                />
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold" style={titleStyle()}>
-                    공지 등록과 함께 카카오 공유창 열기
-                  </p>
-                  <p className="text-sm" style={mutedStyle()}>
-                    등록 버튼을 누르면 이 관리자 PC에서 카카오 공유창을 같이 띄웁니다. 보낼 사람은 카카오 창에서 직접 고르면 됩니다.
-                  </p>
-                </div>
-              </label>
+              <div className="space-y-2">
+                <p className="text-sm font-semibold" style={titleStyle()}>
+                  카카오 공유
+                </p>
+                <p className="text-sm" style={mutedStyle()}>
+                  제목과 본문을 카카오 공유창으로 바로 보냅니다. 이 관리자 PC에서 카카오 창이 뜨고, 받을 사람은 카카오 창에서 직접 선택하면 됩니다.
+                </p>
+              </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                <Badge variant={siteForm.openKakaoShare ? "info" : "default"} size="sm">
-                  {siteForm.openKakaoShare ? "등록 시 카카오 공유창 열림" : "카카오 공유 미사용"}
-                </Badge>
                 <Badge variant={kakaoConfigured ? (kakaoReady ? "success" : "warning") : "error"} size="sm">
                   {kakaoConfigured
                     ? kakaoReady
@@ -526,6 +510,26 @@ export default function AdminNotificationSettings() {
               ) : null}
 
               <Button
+                variant="secondary"
+                leftIcon={<Share2 className="h-4 w-4" />}
+                onClick={() => {
+                  const noticeDraft = buildNoticeDraft();
+
+                  if (!noticeDraft.title || !noticeDraft.content) {
+                    toast.error("카카오로 보내려면 제목과 내용을 먼저 입력해 주세요.");
+                    return;
+                  }
+
+                  const wasOpened = openKakaoShareWindow(noticeDraft);
+                  if (wasOpened) {
+                    toast.success("카카오 공유창을 열었습니다. 카카오 창에서 받을 사람을 선택해 주세요.");
+                  }
+                }}
+              >
+                카카오 공유창 열기
+              </Button>
+
+              <Button
                 variant="primary"
                 leftIcon={<Send className="h-4 w-4" />}
                 isLoading={createNoticeMutation.isPending}
@@ -545,17 +549,7 @@ export default function AdminNotificationSettings() {
                     return;
                   }
 
-                  const noticeDraft = {
-                    title: siteForm.title.trim(),
-                    content: siteForm.content.trim(),
-                  };
-
-                  if (siteForm.openKakaoShare) {
-                    const wasOpened = openKakaoShareWindow(noticeDraft);
-                    if (wasOpened) {
-                      toast.success("카카오 공유창을 열었습니다. 카카오 창에서 받을 사람을 선택해 주세요.");
-                    }
-                  }
+                  const noticeDraft = buildNoticeDraft();
 
                   createNoticeMutation.mutate({
                     title: noticeDraft.title,
