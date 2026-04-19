@@ -2,11 +2,18 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import Button from "@/components/common/Button";
 import { Badge, Card, EmptyState } from "@/components/common/CommonComponents";
+import {
+  isKakaoShareConfigured,
+  isKakaoShareReady,
+  openKakaoNoticeShare,
+  preloadKakaoShareSdk,
+  type KakaoNoticeShareDraft,
+} from "@/lib/kakaoShare";
 import { LIVE_QUERY_OPTIONS, formatDateTime } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
 import { theme } from "@/styles/design-system";
-import { BellRing, MessageSquareText, Send, Smartphone } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BellRing, MessageSquareText, Send, Share2, Smartphone } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -122,6 +129,9 @@ export default function AdminNotificationSettings() {
     title: "",
     message: "",
   });
+  const [isKakaoLoading, setIsKakaoLoading] = useState(false);
+  const [kakaoReady, setKakaoReady] = useState(false);
+  const [lastKakaoDraft, setLastKakaoDraft] = useState<KakaoNoticeShareDraft | null>(null);
 
   const { data: classesData } = trpc.classes.list.useQuery(
     { limit: 300, offset: 0 },
@@ -151,6 +161,36 @@ export default function AdminNotificationSettings() {
       enabled: smsForm.recipientKinds.length > 0,
     });
 
+  const kakaoConfigured = isKakaoShareConfigured();
+
+  useEffect(() => {
+    if (!kakaoConfigured) {
+      setKakaoReady(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsKakaoLoading(true);
+
+    void preloadKakaoShareSdk()
+      .then(() => {
+        if (isCancelled) return;
+        setKakaoReady(isKakaoShareReady());
+      })
+      .catch(() => {
+        if (isCancelled) return;
+        setKakaoReady(false);
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setIsKakaoLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [kakaoConfigured]);
+
   const createNoticeMutation = trpc.notices.create.useMutation({
     onSuccess: async () => {
       toast.success("사이트 알림을 게시했습니다.");
@@ -173,9 +213,7 @@ export default function AdminNotificationSettings() {
 
   const sendBulkSmsMutation = trpc.notifications.sendBulkSms.useMutation({
     onSuccess: async (result) => {
-      toast.success(
-        `문자 ${result.sentCount}건 발송, 실패 ${result.failedCount}건`,
-      );
+      toast.success(`문자 ${result.sentCount}건 발송, 실패 ${result.failedCount}건`);
       setSmsForm((current) => ({
         ...current,
         title: "",
@@ -196,6 +234,33 @@ export default function AdminNotificationSettings() {
   const logs = logsData?.data ?? [];
   const selectedCount = selectedStudentIds.length;
   const providerReady = Boolean(smsStatus?.configured);
+  const latestClassName = siteForm.classId
+    ? classes.find((classItem: any) => String(classItem.id) === siteForm.classId)?.name ?? "선택 반"
+    : null;
+
+  const buildNoticeDraft = (): KakaoNoticeShareDraft => ({
+    title: siteForm.title.trim(),
+    content: siteForm.content.trim(),
+  });
+
+  const openKakaoShareWindow = (draft: KakaoNoticeShareDraft) => {
+    if (!kakaoConfigured) {
+      toast.error("카카오 JavaScript 키가 없어 공유창을 열 수 없습니다.");
+      return false;
+    }
+
+    setLastKakaoDraft(draft);
+
+    try {
+      openKakaoNoticeShare(draft);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "카카오 공유창을 자동으로 열지 못했습니다.";
+      toast.warning(`${message} 아래의 '카카오 공유 다시 열기' 버튼으로 다시 시도해 주세요.`);
+      return false;
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -214,6 +279,16 @@ export default function AdminNotificationSettings() {
           <div className="flex flex-wrap gap-2">
             <Badge variant={providerReady ? "success" : "warning"} size="sm">
               SMS {providerReady ? "연결됨" : "미설정"}
+            </Badge>
+            <Badge variant={kakaoConfigured ? "success" : "warning"} size="sm">
+              Kakao{" "}
+              {kakaoConfigured
+                ? kakaoReady
+                  ? "준비됨"
+                  : isKakaoLoading
+                    ? "로딩 중"
+                    : "준비 중"
+                : "미설정"}
             </Badge>
             {selectedCount > 0 ? (
               <Badge variant="info" size="sm">
@@ -239,7 +314,8 @@ export default function AdminNotificationSettings() {
                       사이트 알림
                     </h2>
                     <p className="text-sm" style={textMutedStyle()}>
-                      학생/부모 포털 공지로 게시되고, 브라우저 알림을 켠 사용자는 즉시 알림을 받습니다.
+                      학생/부모 포털 공지로 게시되고, 브라우저 알림을 켠 사용자는 즉시 알림을
+                      받습니다.
                     </p>
                   </div>
                 </div>
@@ -307,15 +383,67 @@ export default function AdminNotificationSettings() {
               style={{ backgroundColor: theme.colors.background.secondary }}
             >
               <p className="text-sm font-semibold" style={sectionTitleStyle()}>
-                게시 방식
+                카카오 공유
               </p>
               <p className="mt-2 text-sm" style={textMutedStyle()}>
-                사이트 알림은 공지 기반으로 동작합니다. 개별 학생 지정은 문자/SMS 탭에서 처리하고,
-                사이트 알림은 역할과 반 단위로 묶어 보내는 방식이 가장 안정적입니다.
+                제목과 본문을 카카오 공유창으로 바로 보냅니다. 이 관리자 PC에서 카카오 창이
+                뜨고, 받을 사람은 카카오 창에서 직접 선택하면 됩니다.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge
+                  variant={kakaoConfigured ? (kakaoReady ? "success" : "warning") : "error"}
+                  size="sm"
+                >
+                  {kakaoConfigured
+                    ? kakaoReady
+                      ? "카카오 공유 준비 완료"
+                      : isKakaoLoading
+                        ? "카카오 SDK 불러오는 중"
+                        : "카카오 SDK 준비 필요"
+                    : "VITE_KAKAO_JAVASCRIPT_KEY 필요"}
+                </Badge>
+              </div>
+              <p className="mt-3 text-sm" style={textMutedStyle()}>
+                공유되는 텍스트: 제목 + 본문
+                {latestClassName ? ` / 반: ${latestClassName}` : ""}
               </p>
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
+              {lastKakaoDraft ? (
+                <Button
+                  variant="secondary"
+                  leftIcon={<Share2 className="h-4 w-4" />}
+                  onClick={() => {
+                    openKakaoShareWindow(lastKakaoDraft);
+                  }}
+                >
+                  카카오 공유 다시 열기
+                </Button>
+              ) : null}
+
+              <Button
+                variant="secondary"
+                leftIcon={<Share2 className="h-4 w-4" />}
+                onClick={() => {
+                  const noticeDraft = buildNoticeDraft();
+
+                  if (!noticeDraft.title || !noticeDraft.content) {
+                    toast.error("카카오로 보내려면 제목과 내용을 먼저 입력해 주세요.");
+                    return;
+                  }
+
+                  const wasOpened = openKakaoShareWindow(noticeDraft);
+                  if (wasOpened) {
+                    toast.success(
+                      "카카오 공유창을 열었습니다. 카카오 창에서 받을 사람을 선택해 주세요.",
+                    );
+                  }
+                }}
+              >
+                카카오 공유창 열기
+              </Button>
+
               <Button
                 variant="primary"
                 leftIcon={<Send className="h-4 w-4" />}
@@ -505,7 +633,8 @@ export default function AdminNotificationSettings() {
                     전송 미리보기
                   </p>
                   <p className="mt-1 text-sm" style={textMutedStyle()}>
-                    학생 {previewData?.totalStudents ?? 0}명, 수신처 {previewData?.totalRecipients ?? 0}건
+                    학생 {previewData?.totalStudents ?? 0}명, 수신처 {previewData?.totalRecipients ?? 0}
+                    건
                   </p>
                 </div>
                 {isPreviewFetching ? (
@@ -514,7 +643,8 @@ export default function AdminNotificationSettings() {
                   </Badge>
                 ) : (
                   <Badge variant="default" size="sm">
-                    학생 {previewData?.studentPhoneCount ?? 0} / 보호자 {previewData?.parentPhoneCount ?? 0}
+                    학생 {previewData?.studentPhoneCount ?? 0} / 보호자{" "}
+                    {previewData?.parentPhoneCount ?? 0}
                   </Badge>
                 )}
               </div>
@@ -522,7 +652,8 @@ export default function AdminNotificationSettings() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {(previewData?.sampleRecipients ?? []).map((recipient) => (
                   <Badge key={`${recipient.kind}:${recipient.phone}`} variant="info" size="sm">
-                    {recipient.kind === "student" ? "학생" : "보호자"} {recipient.userName || recipient.studentName}
+                    {recipient.kind === "student" ? "학생" : "보호자"}{" "}
+                    {recipient.userName || recipient.studentName}
                   </Badge>
                 ))}
                 {!previewData?.sampleRecipients?.length ? (
