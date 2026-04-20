@@ -304,10 +304,10 @@ export default function AdminClasses() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1
-              className="text-4xl font-bold mb-1"
+              className="mb-1 text-3xl font-bold md:text-4xl"
               style={{ color: theme.colors.text.primary }}
             >
               반 관리
@@ -318,7 +318,7 @@ export default function AdminClasses() {
           </div>
           <button
             onClick={openCreateModal}
-            className="px-4 py-3 rounded-lg text-sm font-medium"
+            className="rounded-lg px-4 py-3 text-sm font-medium"
             style={{
               backgroundColor: theme.colors.accent.primary,
               color: "#fff",

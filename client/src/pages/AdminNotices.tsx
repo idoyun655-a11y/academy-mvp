@@ -29,7 +29,7 @@ export default function AdminNotices() {
 
   const { data, isLoading } = trpc.notices.list.useQuery(
     { limit: 20, offset: page * 20 },
-    LIVE_QUERY_OPTIONS
+    LIVE_QUERY_OPTIONS,
   );
 
   const createNoticeMutation = trpc.notices.create.useMutation({
@@ -67,6 +67,7 @@ export default function AdminNotices() {
     const items = data?.data ?? [];
     const query = searchQuery.trim().toLowerCase();
     if (!query) return items;
+
     return items.filter((notice: any) => {
       return (
         notice.title.toLowerCase().includes(query) ||
@@ -84,31 +85,23 @@ export default function AdminNotices() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <h1
-              className="text-4xl font-bold mb-1"
-              style={{ color: theme.colors.text.primary }}
-            >
+            <h1 className="mb-1 text-4xl font-bold" style={{ color: theme.colors.text.primary }}>
               공지사항 관리
             </h1>
-            <p
-              className="text-base"
-              style={{ color: theme.colors.text.tertiary }}
-            >
-              학생 / 학부모 페이지와 실시간으로 연결되는 공지를 관리합니다.
+            <p className="text-base" style={{ color: theme.colors.text.tertiary }}>
+              학생과 보호자 포털에 노출되는 공지를 관리합니다.
             </p>
-            <p
-              className="text-sm mt-2"
-              style={{ color: theme.colors.text.tertiary }}
-            >
-              카카오 공유창 자동 열기, 웹푸시, 문자 동시 발송은 메시지 센터에서 사용할 수 있습니다.
+            <p className="mt-2 text-sm" style={{ color: theme.colors.text.tertiary }}>
+              카카오 공유는 메시지 센터에서 공지와 별도로 실행할 수 있습니다.
             </p>
           </div>
+
           <div className="flex gap-2">
             <button
               onClick={() => setLocation("/admin/notifications")}
-              className="px-4 py-3 rounded-lg text-sm font-medium"
+              className="rounded-lg px-4 py-3 text-sm font-medium"
               style={{
                 backgroundColor: theme.colors.background.secondary,
                 color: theme.colors.text.primary,
@@ -119,7 +112,7 @@ export default function AdminNotices() {
             </button>
             <button
               onClick={() => setShowModal(true)}
-              className="px-4 py-3 rounded-lg text-sm font-medium"
+              className="rounded-lg px-4 py-3 text-sm font-medium"
               style={{
                 backgroundColor: theme.colors.accent.primary,
                 color: "#fff",
@@ -133,8 +126,8 @@ export default function AdminNotices() {
         <SearchBar
           placeholder="공지 검색"
           value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
             setPage(0);
           }}
         />
@@ -147,18 +140,16 @@ export default function AdminNotices() {
           ) : (
             <div className="space-y-3">
               {notices.map((notice: any) => {
-                const targetRoles = Array.isArray(notice.targetRoles)
-                  ? notice.targetRoles
-                  : [];
+                const targetRoles = Array.isArray(notice.targetRoles) ? notice.targetRoles : [];
                 return (
                   <div
                     key={notice.id}
-                    className="p-4 rounded-lg"
+                    className="rounded-lg p-4"
                     style={{ backgroundColor: theme.colors.background.secondary }}
                   >
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-2">
                           <p
                             className="text-lg font-semibold"
                             style={{ color: theme.colors.text.primary }}
@@ -170,18 +161,16 @@ export default function AdminNotices() {
                           </Badge>
                         </div>
                         <p
-                          className="text-sm whitespace-pre-wrap"
+                          className="whitespace-pre-wrap text-sm"
                           style={{ color: theme.colors.text.tertiary }}
                         >
                           {notice.content}
                         </p>
-                        <p
-                          className="text-xs"
-                          style={{ color: theme.colors.text.tertiary }}
-                        >
-                          대상: {targetRoles.join(", ") || "미지정"} · 생성일 {formatDate(notice.createdAt)}
+                        <p className="text-xs" style={{ color: theme.colors.text.tertiary }}>
+                          대상 {targetRoles.join(", ") || "미지정"} · 생성일 {formatDate(notice.createdAt)}
                         </p>
                       </div>
+
                       <div className="flex gap-2">
                         <button
                           onClick={() =>
@@ -190,7 +179,7 @@ export default function AdminNotices() {
                               isPublished: !notice.isPublished,
                             })
                           }
-                          className="px-3 py-2 rounded-lg text-sm"
+                          className="rounded-lg px-3 py-2 text-sm"
                           style={{
                             backgroundColor: theme.colors.background.primary,
                             color: theme.colors.text.primary,
@@ -201,7 +190,7 @@ export default function AdminNotices() {
                         </button>
                         <button
                           onClick={() => deleteNoticeMutation.mutate({ id: notice.id })}
-                          className="px-3 py-2 rounded-lg text-sm"
+                          className="rounded-lg px-3 py-2 text-sm"
                           style={{
                             backgroundColor: theme.colors.status.error,
                             color: "#fff",
@@ -218,12 +207,12 @@ export default function AdminNotices() {
           )}
         </Card>
 
-        {total > 20 && (
+        {total > 20 ? (
           <div className="flex justify-center gap-2">
             <button
               onClick={() => setPage(Math.max(0, page - 1))}
               disabled={page === 0}
-              className="px-4 py-2 rounded-lg text-sm"
+              className="rounded-lg px-4 py-2 text-sm"
               style={{
                 backgroundColor: theme.colors.background.secondary,
                 color: theme.colors.text.primary,
@@ -235,7 +224,7 @@ export default function AdminNotices() {
             <button
               onClick={() => setPage(page + 1)}
               disabled={(page + 1) * 20 >= total}
-              className="px-4 py-2 rounded-lg text-sm"
+              className="rounded-lg px-4 py-2 text-sm"
               style={{
                 backgroundColor: theme.colors.background.secondary,
                 color: theme.colors.text.primary,
@@ -245,16 +234,13 @@ export default function AdminNotices() {
               다음
             </button>
           </div>
-        )}
+        ) : null}
       </div>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      {showModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <Card variant="elevated" padding="lg" className="w-full max-w-2xl">
-            <h2
-              className="text-2xl font-bold mb-4"
-              style={{ color: theme.colors.text.primary }}
-            >
+            <h2 className="mb-4 text-2xl font-bold" style={{ color: theme.colors.text.primary }}>
               공지 작성
             </h2>
 
@@ -272,51 +258,54 @@ export default function AdminNotices() {
             >
               <input
                 value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                onChange={(event) => setFormData({ ...formData, title: event.target.value })}
                 placeholder="공지 제목"
-                className="w-full px-3 py-3 rounded-lg"
+                className="w-full rounded-lg px-3 py-3"
                 style={{
                   backgroundColor: theme.colors.background.secondary,
                   color: theme.colors.text.primary,
                   border: `1px solid ${theme.colors.border.primary}`,
                 }}
               />
+
               <textarea
                 value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                onChange={(event) => setFormData({ ...formData, content: event.target.value })}
                 placeholder="공지 내용"
-                className="w-full min-h-40 px-3 py-3 rounded-lg"
+                className="min-h-40 w-full rounded-lg px-3 py-3"
                 style={{
                   backgroundColor: theme.colors.background.secondary,
                   color: theme.colors.text.primary,
                   border: `1px solid ${theme.colors.border.primary}`,
                 }}
               />
+
               <select
                 value={formData.targetRoles}
-                onChange={(e) =>
+                onChange={(event) =>
                   setFormData({
                     ...formData,
-                    targetRoles: e.target.value as keyof typeof TARGET_ROLE_OPTIONS,
+                    targetRoles: event.target.value as keyof typeof TARGET_ROLE_OPTIONS,
                   })
                 }
-                className="w-full px-3 py-3 rounded-lg"
+                className="w-full rounded-lg px-3 py-3"
                 style={{
                   backgroundColor: theme.colors.background.secondary,
                   color: theme.colors.text.primary,
                   border: `1px solid ${theme.colors.border.primary}`,
                 }}
               >
-                <option value="both">학생 + 학부모</option>
+                <option value="both">학생 + 보호자</option>
                 <option value="student">학생만</option>
-                <option value="parent">학부모만</option>
+                <option value="parent">보호자만</option>
                 <option value="all">전체</option>
               </select>
+
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-3 rounded-lg text-sm font-medium"
+                  className="rounded-lg px-4 py-3 text-sm font-medium"
                   style={{
                     backgroundColor: theme.colors.background.secondary,
                     color: theme.colors.text.primary,
@@ -327,7 +316,7 @@ export default function AdminNotices() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-3 rounded-lg text-sm font-medium"
+                  className="rounded-lg px-4 py-3 text-sm font-medium"
                   style={{
                     backgroundColor: theme.colors.accent.primary,
                     color: "#fff",
@@ -339,7 +328,7 @@ export default function AdminNotices() {
             </form>
           </Card>
         </div>
-      )}
+      ) : null}
     </DashboardLayout>
   );
 }
