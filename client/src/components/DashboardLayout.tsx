@@ -45,7 +45,7 @@ const menuItems = [
   { icon: CalendarDays, label: "캘린더 모드", path: "/admin/calendar-mode" },
   { icon: GraduationCap, label: "학생 관리", path: "/admin/students" },
   { icon: BookOpen, label: "반 관리", path: "/admin/classes" },
-  { icon: UserCheck, label: "출결 관리", path: "/admin/attendance" },
+  { icon: UserCheck, label: "출석체크", path: "/admin/attendance" },
   { icon: Megaphone, label: "공지사항", path: "/admin/notices" },
   { icon: CalendarDays, label: "성적 관리", path: "/admin/grades" },
   { icon: CreditCard, label: "수납 관리", path: "/admin/payments" },
@@ -84,13 +84,18 @@ export default function DashboardLayout({
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md rounded-3xl border border-white/10 bg-black/40 p-8 text-center shadow-2xl backdrop-blur">
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-              <img src="/logo.svg" alt="ET" className="h-10 w-10" />
+            <img
+              src="/logo.png"
+              alt="ET"
+              className="h-10 w-10 rounded-xl object-cover"
+            />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">
             로그인이 필요합니다
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            관리자 화면은 인증 후에만 접근할 수 있습니다. 로그인 화면으로 이동해 주세요.
+            관리자 화면은 인증된 계정만 접근할 수 있습니다. 로그인 화면으로
+            이동해 주세요.
           </p>
           <Button
             onClick={() => {
@@ -99,7 +104,7 @@ export default function DashboardLayout({
             size="lg"
             className="mt-6 w-full"
           >
-            로그인하기
+            로그인하러 가기
           </Button>
         </div>
       </div>
@@ -140,11 +145,28 @@ function DashboardLayoutContent({
   const isMobile = useIsMobile();
   const currentPageLabel = activeMenuItem?.label ?? "관리자";
 
+  const navigateTo = (path: string) => {
+    setLocation(path);
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
+  const goToDashboard = () => {
+    navigateTo("/admin");
+  };
+
   useEffect(() => {
     if (isCollapsed) {
       setIsResizing(false);
     }
   }, [isCollapsed]);
+
+  useEffect(() => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  }, [isMobile, location, setOpenMobile]);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -190,14 +212,24 @@ function DashboardLayoutContent({
               <button
                 onClick={toggleSidebar}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Toggle navigation"
+                aria-label="사이드바 열기/닫기"
               >
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
+
               {!isCollapsed ? (
-                <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={goToDashboard}
+                  className="flex min-w-0 items-center gap-3 rounded-xl px-1 py-1 text-left transition-colors hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="대시보드로 이동"
+                >
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                <img src="/logo.svg" alt="ET" className="h-6 w-6 shrink-0" />
+                    <img
+                      src="/logo.png"
+                      alt="ET"
+                      className="h-6 w-6 shrink-0 rounded-lg object-cover"
+                    />
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold tracking-tight">
@@ -207,7 +239,7 @@ function DashboardLayoutContent({
                       Academy Control Center
                     </p>
                   </div>
-                </div>
+                </button>
               ) : null}
             </div>
           </SidebarHeader>
@@ -220,12 +252,7 @@ function DashboardLayoutContent({
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      onClick={() => {
-                        setLocation(item.path);
-                        if (isMobile) {
-                          setOpenMobile(false);
-                        }
-                      }}
+                      onClick={() => navigateTo(item.path)}
                       tooltip={item.label}
                       className="h-11 font-normal"
                     >
@@ -298,14 +325,23 @@ function DashboardLayoutContent({
           </div>
         ) : null}
 
-        <main className="flex-1 px-4 py-5 md:px-6 md:py-6">
+        <main className="flex-1 px-4 py-5 lg:px-6 lg:py-6">
           <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col gap-6">
             {!isMobile ? (
               <section className="rounded-3xl border border-white/10 bg-white/[0.03] px-6 py-5 backdrop-blur">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={goToDashboard}
+                    className="flex items-center gap-4 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label="대시보드로 이동"
+                  >
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
-              <img src="/logo.svg" alt="ET" className="h-8 w-8" />
+                      <img
+                        src="/logo.png"
+                        alt="ET"
+                        className="h-8 w-8 rounded-xl object-cover"
+                      />
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">
@@ -315,7 +351,7 @@ function DashboardLayoutContent({
                         {currentPageLabel}
                       </h1>
                     </div>
-                  </div>
+                  </button>
 
                   <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
                     <p className="font-medium text-foreground">
@@ -333,7 +369,7 @@ function DashboardLayoutContent({
           </div>
         </main>
 
-        <div className="px-4 md:px-6">
+        <div className="px-4 lg:px-6">
           <div className="mx-auto w-full max-w-7xl">
             <Footer />
           </div>

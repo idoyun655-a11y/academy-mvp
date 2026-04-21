@@ -15,7 +15,7 @@ export default function Footer() {
           {/* 학원 정보 */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-            <img src="/logo.svg" alt="ET" className="h-6 w-6" />
+            <img src="/logo.png" alt="ET" className="h-6 w-6 rounded-lg object-cover" />
               <h3
                 className="font-semibold"
                 style={{ color: theme.colors.text.primary }}

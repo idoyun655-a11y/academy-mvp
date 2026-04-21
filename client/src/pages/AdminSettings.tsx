@@ -380,7 +380,7 @@ export default function AdminSettings() {
         </h2>
         <div className="flex items-center gap-6">
           <img
-                      src="/logo.svg"
+                      src="/logo.png"
             alt="학원 로고"
             className="h-24 w-24 rounded-lg"
             style={{

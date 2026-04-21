@@ -22,6 +22,7 @@ export default function Signup() {
     passwordConfirm: "",
     name: "",
     phone: "",
+    attendancePin: "",
     parentName: "",
     parentPhone: "",
     dateOfBirth: "",
@@ -49,10 +50,7 @@ export default function Signup() {
     }
   }, [checkEmailQuery.data]);
 
-  const updateField = (
-    key: keyof typeof formData,
-    value: string,
-  ) => {
+  const updateField = (key: keyof typeof formData, value: string) => {
     setFormData((current) => ({ ...current, [key]: value }));
     setErrors((current) => {
       const next = { ...current };
@@ -66,13 +64,13 @@ export default function Signup() {
     const nextErrors: Record<string, string> = {};
 
     if (!formData.email) {
-      nextErrors.email = "이메일을 입력해주세요.";
+      nextErrors.email = "이메일을 입력해 주세요.";
     } else if (emailAvailable === false) {
       nextErrors.email = "이미 가입된 이메일입니다.";
     }
 
     if (!formData.password) {
-      nextErrors.password = "비밀번호를 입력해주세요.";
+      nextErrors.password = "비밀번호를 입력해 주세요.";
     } else if (formData.password.length < 8) {
       nextErrors.password = "비밀번호는 8자 이상이어야 합니다.";
     }
@@ -82,11 +80,19 @@ export default function Signup() {
     }
 
     if (!formData.name) {
-      nextErrors.name = "이름을 입력해주세요.";
+      nextErrors.name = "이름을 입력해 주세요.";
+    }
+
+    if (formData.role === "student") {
+      if (!formData.attendancePin) {
+        nextErrors.attendancePin = "출석번호 4자리를 입력해 주세요.";
+      } else if (!/^\d{4}$/.test(formData.attendancePin)) {
+        nextErrors.attendancePin = "출석번호는 숫자 4자리여야 합니다.";
+      }
     }
 
     if (formData.role === "student" && formData.parentPhone && !formData.parentName) {
-      nextErrors.parentName = "보호자 이름을 함께 입력해주세요.";
+      nextErrors.parentName = "보호자 연락처를 적었다면 보호자 이름도 입력해 주세요.";
     }
 
     setErrors(nextErrors);
@@ -106,6 +112,7 @@ export default function Signup() {
         name: formData.name,
         phone: formData.phone || undefined,
         role: formData.role,
+        attendancePin: formData.role === "student" ? formData.attendancePin : undefined,
         parentName: formData.parentName || undefined,
         parentPhone: formData.parentPhone || undefined,
         dateOfBirth: formData.dateOfBirth || undefined,
@@ -127,7 +134,7 @@ export default function Signup() {
   if (user) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center px-4 py-12"
+        className="flex min-h-screen items-center justify-center px-4 py-12"
         style={{ backgroundColor: theme.colors.background.primary }}
       >
         <div className="w-full max-w-md">
@@ -140,14 +147,11 @@ export default function Signup() {
               borderColor: theme.colors.border.primary,
             }}
           >
-            <h2
-              className="text-2xl font-bold mb-4"
-              style={{ color: theme.colors.text.primary }}
-            >
-              이미 로그인된 상태입니다
+            <h2 className="mb-4 text-2xl font-bold" style={{ color: theme.colors.text.primary }}>
+              이미 로그인된 상태입니다.
             </h2>
             <p style={{ color: theme.colors.text.secondary }}>{user.email}</p>
-            <Button className="w-full mt-6" onClick={() => setLocation(getRoleHome(user.role))}>
+            <Button className="mt-6 w-full" onClick={() => setLocation(getRoleHome(user.role))}>
               대시보드로 이동
             </Button>
           </Card>
@@ -158,17 +162,14 @@ export default function Signup() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4 py-12"
+      className="flex min-h-screen items-center justify-center px-4 py-12"
       style={{ backgroundColor: theme.colors.background.primary }}
     >
       <div className="w-full max-w-2xl">
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-              <img src="/logo.svg" alt="ET" className="h-10 w-10" />
-            <h1
-              className="text-3xl font-bold"
-              style={{ color: theme.colors.text.primary }}
-            >
+        <div className="mb-8 text-center">
+          <div className="mb-4 flex items-center justify-center gap-3">
+            <img src="/logo.png" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
+            <h1 className="text-3xl font-bold" style={{ color: theme.colors.text.primary }}>
               ET영어전문학원
             </h1>
           </div>
@@ -186,9 +187,9 @@ export default function Signup() {
             borderColor: theme.colors.border.primary,
           }}
         >
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 계정 유형
               </label>
               <select
@@ -207,7 +208,7 @@ export default function Signup() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 이메일
               </label>
               <input
@@ -222,7 +223,7 @@ export default function Signup() {
               />
               {emailAvailable !== null ? (
                 <p
-                  className="text-sm mt-1"
+                  className="mt-1 text-sm"
                   style={{
                     color: emailAvailable
                       ? theme.colors.status.success
@@ -233,14 +234,14 @@ export default function Signup() {
                 </p>
               ) : null}
               {errors.email ? (
-                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
                   {errors.email}
                 </p>
               ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 비밀번호
               </label>
               <input
@@ -255,14 +256,14 @@ export default function Signup() {
                 }}
               />
               {errors.password ? (
-                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
                   {errors.password}
                 </p>
               ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 비밀번호 확인
               </label>
               <input
@@ -277,14 +278,14 @@ export default function Signup() {
                 }}
               />
               {errors.passwordConfirm ? (
-                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
                   {errors.passwordConfirm}
                 </p>
               ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 이름
               </label>
               <input
@@ -298,14 +299,14 @@ export default function Signup() {
                 }}
               />
               {errors.name ? (
-                <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
                   {errors.name}
                 </p>
               ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 연락처
               </label>
               <input
@@ -323,7 +324,32 @@ export default function Signup() {
             {formData.role === "student" ? (
               <>
                 <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
+                    출석번호
+                  </label>
+                  <input
+                    value={formData.attendancePin}
+                    onChange={(event) =>
+                      updateField("attendancePin", event.target.value.replace(/\D/g, "").slice(0, 4))
+                    }
+                    inputMode="numeric"
+                    maxLength={4}
+                    className="w-full rounded-lg border px-3 py-3"
+                    style={{
+                      backgroundColor: theme.colors.background.primary,
+                      borderColor: theme.colors.border.primary,
+                      color: theme.colors.text.primary,
+                    }}
+                  />
+                  {errors.attendancePin ? (
+                    <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
+                      {errors.attendancePin}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     보호자 이름
                   </label>
                   <input
@@ -337,14 +363,14 @@ export default function Signup() {
                     }}
                   />
                   {errors.parentName ? (
-                    <p className="text-sm mt-1" style={{ color: theme.colors.status.error }}>
+                    <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
                       {errors.parentName}
                     </p>
                   ) : null}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     보호자 연락처
                   </label>
                   <input
@@ -360,7 +386,7 @@ export default function Signup() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     생년월일
                   </label>
                   <input
@@ -379,7 +405,7 @@ export default function Signup() {
             ) : null}
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 주소
               </label>
               <input
@@ -395,7 +421,7 @@ export default function Signup() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.text.primary }}>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 메모
               </label>
               <textarea
@@ -413,7 +439,7 @@ export default function Signup() {
 
             {errors.submit ? (
               <div
-                className="md:col-span-2 rounded-lg border p-3"
+                className="rounded-lg border p-3 md:col-span-2"
                 style={{
                   backgroundColor: theme.colors.background.tertiary,
                   borderColor: theme.colors.border.primary,
@@ -426,7 +452,7 @@ export default function Signup() {
 
             {successMessage ? (
               <div
-                className="md:col-span-2 rounded-lg border p-3"
+                className="rounded-lg border p-3 md:col-span-2"
                 style={{
                   backgroundColor: theme.colors.background.tertiary,
                   borderColor: theme.colors.border.primary,
@@ -437,7 +463,7 @@ export default function Signup() {
               </div>
             ) : null}
 
-            <div className="md:col-span-2 flex flex-col gap-3">
+            <div className="flex flex-col gap-3 md:col-span-2">
               <Button type="submit" isFullWidth disabled={isLoading || emailAvailable === false}>
                 {isLoading ? "가입 처리 중..." : "회원가입"}
               </Button>

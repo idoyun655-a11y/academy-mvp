@@ -69,7 +69,7 @@ export default function ForgotPassword() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
-              <img src="/logo.svg" alt="ET" className="h-10 w-10" />
+                <img src="/logo.png" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
             <h1
               className="text-3xl font-bold"
               style={{ color: theme.colors.text.primary }}

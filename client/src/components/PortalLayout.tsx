@@ -39,7 +39,7 @@ export default function PortalLayout({
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div className="flex items-start gap-4">
               <img
-                  src="/logo.svg"
+                  src="/logo.png"
                 alt="ET영어전문학원 로고"
                 className="h-14 w-14 rounded-2xl border object-cover shadow-lg"
                 style={{ borderColor: theme.colors.border.primary }}

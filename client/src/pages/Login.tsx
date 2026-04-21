@@ -59,7 +59,7 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-5">
-              <img src="/logo.svg" alt="ET" className="h-12 w-12" />
+              <img src="/logo.png" alt="ET" className="h-12 w-12 rounded-xl object-cover" />
             <div className="text-left">
               <p
                 className="text-xs uppercase tracking-[0.25em]"

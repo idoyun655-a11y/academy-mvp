@@ -75,7 +75,7 @@ export default function Home() {
       >
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-              <img src="/logo.svg" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
+                  <img src="/logo.png" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
             <div>
               <p
                 className="text-xs font-semibold uppercase tracking-[0.24em]"
@@ -400,7 +400,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4">
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-3 mb-6">
-                <img src="/logo.svg" alt="ET" className="h-12 w-12" />
+                <img src="/logo.png" alt="ET" className="h-12 w-12 rounded-xl object-cover" />
               <h2
                 className="text-4xl font-bold"
                 style={{ color: theme.colors.text.primary }}
