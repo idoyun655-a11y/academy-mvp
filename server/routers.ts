@@ -94,20 +94,27 @@ function toAuthUser(user: any): AuthUser | null {
     id: user.id,
     email: user.email || "",
     name: user.name || user.email || "",
-    role: user.role === "superadmin" ? "admin" : (user.role as AuthUser["role"]),
+    role:
+      user.role === "superadmin" ? "admin" : (user.role as AuthUser["role"]),
     phone: user.phone || undefined,
   };
 }
 
 function extractInsertedId(result: any) {
-  const rawId = result?.id ?? result?.insertId ?? result?.[0]?.id ?? result?.[0]?.insertId;
+  const rawId =
+    result?.id ?? result?.insertId ?? result?.[0]?.id ?? result?.[0]?.insertId;
   const parsedId = Number(rawId ?? 0);
   return Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null;
 }
 
 const schoolLevelSchema = z.enum(["elementary", "middle", "high", "other"]);
 const lifecycleStatusSchema = z.enum(["active", "on_hold", "leaving", "ended"]);
-const followUpStatusSchema = z.enum(["none", "needs_contact", "scheduled", "done"]);
+const followUpStatusSchema = z.enum([
+  "none",
+  "needs_contact",
+  "scheduled",
+  "done",
+]);
 const attendancePinSchema = z
   .string()
   .trim()
@@ -125,7 +132,13 @@ const studentOpsSavedViewSchema = z.enum([
   "on_hold",
   "leaving",
 ]);
-const studentOpsSortBySchema = z.enum(["default", "name", "gradeLevel", "updatedAt", "createdAt"]);
+const studentOpsSortBySchema = z.enum([
+  "default",
+  "name",
+  "gradeLevel",
+  "updatedAt",
+  "createdAt",
+]);
 const studentOpsSortOrderSchema = z.enum(["asc", "desc"]);
 
 export const appRouter = router({
@@ -145,7 +158,7 @@ export const appRouter = router({
         z.object({
           email: z.string().email(),
           password: z.string(),
-        })
+        }),
       )
       .mutation(async ({ input, ctx }) => {
         await ensureDefaultAdminAccount();
@@ -193,7 +206,7 @@ export const appRouter = router({
           dateOfBirth: z.string().optional(),
           address: z.string().optional(),
           notes: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         await ensureDefaultAdminAccount();
@@ -214,61 +227,89 @@ export const appRouter = router({
         }
 
         // DB users 테이블에 생성 (password 해시)
-        const hashedPassword = await hashPassword(input.password);
-        const dbUser = await createUser({
-          email: input.email,
-          name: input.name,
-          phone: input.phone || null,
-          password: hashedPassword,
-          role: input.role as 'student' | 'parent',
-          openId: input.email, // email을 openId로 사용
-          loginMethod: 'email',
-        });
+        let createdEmail: string | null = null;
 
-        if (!dbUser?.id) {
-          throw new Error("계정을 생성하지 못했습니다.");
-        }
+        try {
+          const hashedPassword = await hashPassword(input.password);
+          const dbUser = await createUser({
+            email: input.email,
+            name: input.name,
+            phone: input.phone || null,
+            password: hashedPassword,
+            role: input.role as "student" | "parent",
+            openId: input.email, // email을 openId로 사용
+            loginMethod: "email",
+          });
 
-        // role이 student인 경우 students 테이블에도 생성
-        if (input.role === 'student') {
-          if (!input.attendancePin) {
-            throw new Error("학생 계정은 출석번호 4자리가 필요합니다.");
+          if (!dbUser?.id) {
+            throw new Error("계정을 생성하지 못했습니다.");
           }
 
-          const attendancePin = await ensureAttendancePinAvailable(input.attendancePin);
+          // role이 student인 경우 students 테이블에도 생성
+          createdEmail = dbUser.email || input.email;
 
-          await createStudent({
-            userId: dbUser.id,
-            name: input.name,
+          if (input.role === "student") {
+            if (!input.attendancePin) {
+              throw new Error("학생 계정은 출석번호 4자리가 필요합니다.");
+            }
+
+            const attendancePin = await ensureAttendancePinAvailable(
+              input.attendancePin,
+            );
+
+            await createStudent({
+              userId: dbUser.id,
+              name: input.name,
+              email: input.email,
+              phone: input.phone || null,
+              attendancePin,
+              parentName: input.parentName || null,
+              parentPhone: input.parentPhone || null,
+              schoolLevel: input.schoolLevel || "other",
+              gradeLevel: input.gradeLevel ?? null,
+              lifecycleStatus: input.lifecycleStatus || "active",
+              followUpStatus: input.followUpStatus || "none",
+              followUpDueDate: input.followUpDueDate
+                ? new Date(input.followUpDueDate)
+                : null,
+              dateOfBirth: input.dateOfBirth
+                ? new Date(input.dateOfBirth)
+                : null,
+              address: input.address || null,
+              notes: input.notes || null,
+              isActive: true,
+            });
+          }
+
+          const newUser: AuthUser = {
+            id: dbUser.id,
             email: input.email,
-            phone: input.phone || null,
-            attendancePin,
-            parentName: input.parentName || null,
-            parentPhone: input.parentPhone || null,
-            schoolLevel: input.schoolLevel || "other",
-            gradeLevel: input.gradeLevel ?? null,
-            lifecycleStatus: input.lifecycleStatus || "active",
-            followUpStatus: input.followUpStatus || "none",
-            followUpDueDate: input.followUpDueDate ? new Date(input.followUpDueDate) : null,
-            dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
-            address: input.address || null,
-            notes: input.notes || null,
-            isActive: true,
-          });
+            name: input.name,
+            role: input.role as "student" | "parent",
+          };
+
+          return {
+            user: newUser,
+            token: generateToken(newUser),
+            message: "회원가입이 완료되었습니다.",
+          };
+        } catch (error) {
+          if (createdEmail && input.role === "student") {
+            try {
+              const createdUser = await getUserByEmail(createdEmail);
+              if (createdUser?.role === "student") {
+                await deleteUserByEmail(createdEmail);
+              }
+            } catch (cleanupError) {
+              console.error(
+                "[Auth] Failed to clean up half-created student account:",
+                cleanupError,
+              );
+            }
+          }
+
+          throw error;
         }
-
-        const newUser: AuthUser = {
-          id: dbUser.id,
-          email: input.email,
-          name: input.name,
-          role: input.role as 'student' | 'parent',
-        };
-
-        return {
-          user: newUser,
-          token: generateToken(newUser),
-          message: "회원가입이 완료되었습니다.",
-        };
       }),
 
     checkEmail: publicProcedure
@@ -286,7 +327,7 @@ export const appRouter = router({
           email: z.string().email(),
           password: z.string(),
           passwordConfirm: z.string(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const passwordValidation = validatePassword(input.password);
@@ -319,7 +360,7 @@ export const appRouter = router({
           password: z.string(),
           name: z.string().min(1),
           phone: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const passwordValidation = validatePassword(input.password);
@@ -338,9 +379,9 @@ export const appRouter = router({
           name: input.name,
           phone: input.phone || null,
           password: hashedPassword,
-          role: 'teacher',
+          role: "teacher",
           openId: input.email,
-          loginMethod: 'email',
+          loginMethod: "email",
         });
 
         if (!dbUser?.id) {
@@ -364,7 +405,7 @@ export const appRouter = router({
           limit: z.number().default(50),
           offset: z.number().default(0),
           search: z.string().optional(),
-        })
+        }),
       )
       .query(async ({ input }) =>
         listUsersByRole("teacher", input.limit, input.offset, input.search),
@@ -376,7 +417,7 @@ export const appRouter = router({
           email: z.string().email(),
           name: z.string().optional(),
           phone: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const teacher = await getUserByEmail(input.email);
@@ -392,8 +433,8 @@ export const appRouter = router({
         const updated = await getUserByEmail(input.email);
         return {
           id: updated?.id,
-          email: updated?.email || '',
-          name: updated?.name || '',
+          email: updated?.email || "",
+          name: updated?.name || "",
           phone: updated?.phone || null,
           role: updated?.role,
           message: "강사 정보가 수정되었습니다.",
@@ -422,19 +463,23 @@ export const appRouter = router({
           limit: z.number().default(50),
           offset: z.number().default(0),
           search: z.string().optional(),
-        })
+        }),
       )
       .query(async ({ input }) => {
-        const { getStudents } = await import('./db');
-        const result = await getStudents(input.limit, input.offset, input.search ? { name: input.search } : undefined);
-        
+        const { getStudents } = await import("./db");
+        const result = await getStudents(
+          input.limit,
+          input.offset,
+          input.search ? { name: input.search } : undefined,
+        );
+
         return {
           data: result.data.map((student: any) => ({
             id: student.id,
-            email: student.email || '',
-            name: student.name || '',
+            email: student.email || "",
+            name: student.name || "",
             phone: student.phone || null,
-            role: 'student',
+            role: "student",
             createdAt: student.createdAt || new Date(),
           })),
           total: result.total,
@@ -449,14 +494,14 @@ export const appRouter = router({
           id: z.number(),
           name: z.string().optional(),
           phone: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
-        const { updateStudent, getStudentById } = await import('./db');
+        const { updateStudent, getStudentById } = await import("./db");
         const student = await getStudentById(input.id);
-        
+
         if (!student) {
-          throw new Error('Student not found');
+          throw new Error("Student not found");
         }
 
         const updateData: any = {};
@@ -468,29 +513,29 @@ export const appRouter = router({
 
         return {
           id: updated?.id,
-          email: updated?.email || '',
-          name: updated?.name || '',
+          email: updated?.email || "",
+          name: updated?.name || "",
           phone: updated?.phone || null,
-          role: 'student',
-          message: 'Student updated successfully',
+          role: "student",
+          message: "Student updated successfully",
         };
       }),
 
     deleteStudent: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        const { softDeleteStudent, getStudentById } = await import('./db');
+        const { softDeleteStudent, getStudentById } = await import("./db");
         const student = await getStudentById(input.id);
-        
+
         if (!student) {
-          throw new Error('Student not found');
+          throw new Error("Student not found");
         }
 
         await softDeleteStudent(input.id);
 
         return {
           success: true,
-          message: 'Student deleted successfully',
+          message: "Student deleted successfully",
         };
       }),
   }),
@@ -530,7 +575,9 @@ export const appRouter = router({
           followUpStatus: followUpStatusSchema.optional(),
           followUpDueDate: z.string().nullable().optional(),
           classIds: z.array(z.number().int().positive()).optional(),
-          classSyncMode: z.enum(["replace", "add", "remove"]).default("replace"),
+          classSyncMode: z
+            .enum(["replace", "add", "remove"])
+            .default("replace"),
         }),
       )
       .mutation(async ({ input }) => {
@@ -583,7 +630,7 @@ export const appRouter = router({
           dateOfBirth: z.string().optional(),
           address: z.string().optional(),
           notes: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ ctx, input }) => {
         const student = await getStudentByUserId(ctx.user.id);
@@ -598,8 +645,10 @@ export const appRouter = router({
         const updatePayload: Record<string, unknown> = {};
         if (input.name !== undefined) updatePayload.name = input.name;
         if (input.phone !== undefined) updatePayload.phone = input.phone;
-        if (input.parentName !== undefined) updatePayload.parentName = input.parentName;
-        if (input.parentPhone !== undefined) updatePayload.parentPhone = input.parentPhone;
+        if (input.parentName !== undefined)
+          updatePayload.parentName = input.parentName;
+        if (input.parentPhone !== undefined)
+          updatePayload.parentPhone = input.parentPhone;
         if (input.address !== undefined) updatePayload.address = input.address;
         if (input.notes !== undefined) updatePayload.notes = input.notes;
         if (input.dateOfBirth !== undefined) {
@@ -623,7 +672,7 @@ export const appRouter = router({
           offset: z.number().default(0),
           search: z.string().optional(),
           classId: z.number().optional(),
-        })
+        }),
       )
       .query(async ({ input }) => {
         return getStudents(input.limit, input.offset, {
@@ -651,7 +700,7 @@ export const appRouter = router({
           dateOfBirth: z.string().optional(),
           address: z.string().optional(),
           notes: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const result = await createStudent({
@@ -689,7 +738,7 @@ export const appRouter = router({
           dateOfBirth: z.string().optional(),
           address: z.string().optional(),
           notes: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
@@ -729,7 +778,7 @@ export const appRouter = router({
         z.object({
           limit: z.number().default(50),
           offset: z.number().default(0),
-        })
+        }),
       )
       .query(async ({ input }) => {
         return getClasses(input.limit, input.offset);
@@ -750,7 +799,7 @@ export const appRouter = router({
           capacity: z.number().default(20),
           room: z.string().optional(),
           description: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const result = await createClass({
@@ -775,7 +824,7 @@ export const appRouter = router({
           capacity: z.number().optional(),
           room: z.string().optional(),
           description: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
@@ -808,7 +857,7 @@ export const appRouter = router({
           dayOfWeek: z.number().min(0).max(6),
           startTime: z.string(),
           endTime: z.string(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const result = await createClassSchedule({
@@ -829,7 +878,7 @@ export const appRouter = router({
           dayOfWeek: z.number().min(0).max(6).optional(),
           startTime: z.string().optional(),
           endTime: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
@@ -854,7 +903,10 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => {
-        const result = await replaceClassSchedules(input.classId, input.schedules);
+        const result = await replaceClassSchedules(
+          input.classId,
+          input.schedules,
+        );
         console.log("[API] Replaced class schedules:", result);
         return result;
       }),
@@ -872,7 +924,7 @@ export const appRouter = router({
         z.object({
           studentId: z.number(),
           classIds: z.array(z.number()),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         return syncStudentEnrollments(input.studentId, input.classIds);
@@ -907,7 +959,7 @@ export const appRouter = router({
           limit: z.number().default(50),
           offset: z.number().default(0),
           onlyPublished: z.boolean().default(false),
-        })
+        }),
       )
       .query(async ({ input }) => {
         return getNotices(input.limit, input.offset, input.onlyPublished);
@@ -928,7 +980,7 @@ export const appRouter = router({
           targetClassIds: z.array(z.number()).optional(),
           attachmentUrls: z.array(z.string()).optional(),
           isPublished: z.boolean().default(false),
-        })
+        }),
       )
       .mutation(async ({ input, ctx }) => {
         const result = await createNotice({
@@ -955,7 +1007,7 @@ export const appRouter = router({
           targetClassIds: z.array(z.number()).optional(),
           attachmentUrls: z.array(z.string()).optional(),
           isPublished: z.boolean().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
@@ -998,7 +1050,7 @@ export const appRouter = router({
           social: z.number().min(1).max(9).optional(),
           schoolGrade: z.number().min(1).max(9).optional(),
           schoolGradeType: z.enum(["5", "9"]).optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const result = await saveGrade(input);
@@ -1017,7 +1069,7 @@ export const appRouter = router({
           social: z.number().min(1).max(9).optional(),
           schoolGrade: z.number().min(1).max(9).optional(),
           schoolGradeType: z.enum(["5", "9"]).optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
@@ -1043,12 +1095,17 @@ export const appRouter = router({
     previewAudience: adminProcedure
       .input(
         z.object({
-          scope: z.enum(["selected_students", "saved_view", "class", "all_active"]),
+          scope: z.enum([
+            "selected_students",
+            "saved_view",
+            "class",
+            "all_active",
+          ]),
           studentIds: z.array(z.number().int().positive()).default([]),
           savedView: studentOpsSavedViewSchema.optional(),
           classId: z.number().int().positive().optional(),
           recipientKinds: z.array(z.enum(["student", "parent"])).min(1),
-        })
+        }),
       )
       .query(async ({ input }) => {
         return previewSmsAudience(input);
@@ -1057,14 +1114,19 @@ export const appRouter = router({
     sendBulkSms: adminProcedure
       .input(
         z.object({
-          scope: z.enum(["selected_students", "saved_view", "class", "all_active"]),
+          scope: z.enum([
+            "selected_students",
+            "saved_view",
+            "class",
+            "all_active",
+          ]),
           studentIds: z.array(z.number().int().positive()).default([]),
           savedView: studentOpsSavedViewSchema.optional(),
           classId: z.number().int().positive().optional(),
           recipientKinds: z.array(z.enum(["student", "parent"])).min(1),
           title: z.string().max(120).optional(),
           message: z.string().min(1),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         return sendBulkSmsMessage(input);
@@ -1075,7 +1137,7 @@ export const appRouter = router({
         z.object({
           limit: z.number().min(1).max(100).default(30),
           offset: z.number().min(0).default(0),
-        })
+        }),
       )
       .query(async ({ input }) => {
         return listNotificationLogs(input);
@@ -1087,7 +1149,7 @@ export const appRouter = router({
           studentId: z.number(),
           type: z.string(),
           message: z.string(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const student = await getStudentById(input.studentId);
@@ -1111,13 +1173,15 @@ export const appRouter = router({
           examEndDate: z.string().optional(),
           subject: z.string().optional(),
           description: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         return await createExamSchedule({
           examName: input.examName,
           examDate: new Date(input.examDate),
-          examEndDate: input.examEndDate ? new Date(input.examEndDate) : undefined,
+          examEndDate: input.examEndDate
+            ? new Date(input.examEndDate)
+            : undefined,
           subject: input.subject,
           description: input.description,
         });
@@ -1136,14 +1200,15 @@ export const appRouter = router({
           examEndDate: z.string().optional(),
           subject: z.string().optional(),
           description: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
         const data: any = {};
         if (updateData.examName) data.examName = updateData.examName;
         if (updateData.examDate) data.examDate = new Date(updateData.examDate);
-        if (updateData.examEndDate) data.examEndDate = new Date(updateData.examEndDate);
+        if (updateData.examEndDate)
+          data.examEndDate = new Date(updateData.examEndDate);
         if (updateData.subject) data.subject = updateData.subject;
         if (updateData.description) data.description = updateData.description;
         return await updateExamSchedule(id, data);
@@ -1164,13 +1229,15 @@ export const appRouter = router({
           eventEndDate: z.string().optional(),
           eventType: z.enum(["holiday", "event", "notice", "other"]),
           description: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         return await createAcademyEvent({
           eventName: input.eventName,
           eventDate: new Date(input.eventDate),
-          eventEndDate: input.eventEndDate ? new Date(input.eventEndDate) : undefined,
+          eventEndDate: input.eventEndDate
+            ? new Date(input.eventEndDate)
+            : undefined,
           eventType: input.eventType,
           description: input.description,
         });
@@ -1189,14 +1256,16 @@ export const appRouter = router({
           eventEndDate: z.string().optional(),
           eventType: z.enum(["holiday", "event", "notice", "other"]).optional(),
           description: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
         const data: any = {};
         if (updateData.eventName) data.eventName = updateData.eventName;
-        if (updateData.eventDate) data.eventDate = new Date(updateData.eventDate);
-        if (updateData.eventEndDate) data.eventEndDate = new Date(updateData.eventEndDate);
+        if (updateData.eventDate)
+          data.eventDate = new Date(updateData.eventDate);
+        if (updateData.eventEndDate)
+          data.eventEndDate = new Date(updateData.eventEndDate);
         if (updateData.eventType) data.eventType = updateData.eventType;
         if (updateData.description) data.description = updateData.description;
         return await updateAcademyEvent(id, data);
@@ -1222,7 +1291,7 @@ export const appRouter = router({
           dueDate: z.string().optional(),
           paidDate: z.string().optional(),
           notes: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         return await createTuitionPayment({
@@ -1254,7 +1323,7 @@ export const appRouter = router({
           dueDate: z.string().optional(),
           paidDate: z.string().optional(),
           notes: z.string().optional(),
-        })
+        }),
       )
       .mutation(async ({ input }) => {
         const { id, ...updateData } = input;
@@ -1262,15 +1331,21 @@ export const appRouter = router({
 
         if (updateData.month !== undefined) data.month = updateData.month;
         if (updateData.amount !== undefined) data.amount = updateData.amount;
-        if (updateData.paidAmount !== undefined) data.paidAmount = updateData.paidAmount;
+        if (updateData.paidAmount !== undefined)
+          data.paidAmount = updateData.paidAmount;
         if (updateData.status !== undefined) data.status = updateData.status;
         if (updateData.dueDate !== undefined) {
-          data.dueDate = updateData.dueDate ? new Date(updateData.dueDate) : null;
+          data.dueDate = updateData.dueDate
+            ? new Date(updateData.dueDate)
+            : null;
         }
         if (updateData.paidDate !== undefined) {
-          data.paidDate = updateData.paidDate ? new Date(updateData.paidDate) : null;
+          data.paidDate = updateData.paidDate
+            ? new Date(updateData.paidDate)
+            : null;
         }
-        if (updateData.notes !== undefined) data.notes = updateData.notes || null;
+        if (updateData.notes !== undefined)
+          data.notes = updateData.notes || null;
 
         return await updateTuitionPayment(id, data);
       }),

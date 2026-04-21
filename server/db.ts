@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql, { type Connection, type RowDataPacket } from "mysql2/promise";
 import {
   academyEvents,
   adminLogs,
@@ -20,13 +21,10 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { ensureAttendancePinAvailable, isValidAttendancePin } from "./commute";
-import {
-  getNextLocalId,
-  readLocalStore,
-  updateLocalStore,
-} from "./localStore";
+import { getNextLocalId, readLocalStore, updateLocalStore } from "./localStore";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _databaseReadyPromise: Promise<void> | null = null;
 
 const DEFAULT_STUDENT_META = {
   schoolLevel: "other",
@@ -36,9 +34,273 @@ const DEFAULT_STUDENT_META = {
   followUpDueDate: null,
 } as const;
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production";
+}
+
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL?.trim() ?? "";
+}
+
 function shouldUseLocalStore() {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  return !databaseUrl || databaseUrl.startsWith("file:");
+  const databaseUrl = getDatabaseUrl();
+  if (!databaseUrl) return !isProductionRuntime();
+  return databaseUrl.startsWith("file:");
+}
+
+function assertPersistenceConfiguration() {
+  const databaseUrl = getDatabaseUrl();
+  if (
+    isProductionRuntime() &&
+    (!databaseUrl || databaseUrl.startsWith("file:"))
+  ) {
+    throw new Error(
+      "[Database] DATABASE_URL must point to MySQL in production. Local file storage is disabled in production to prevent account loss.",
+    );
+  }
+}
+
+async function getConnectionDatabaseName(connection: Connection) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    "SELECT DATABASE() AS databaseName",
+  );
+  const databaseName = rows[0]?.databaseName;
+  if (typeof databaseName !== "string" || databaseName.length === 0) {
+    throw new Error(
+      "[Database] Could not determine the active MySQL database name.",
+    );
+  }
+  return databaseName;
+}
+
+async function hasColumn(
+  connection: Connection,
+  databaseName: string,
+  tableName: string,
+  columnName: string,
+) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = ?
+        AND table_name = ?
+        AND column_name = ?
+      LIMIT 1
+    `,
+    [databaseName, tableName, columnName],
+  );
+  return rows.length > 0;
+}
+
+async function hasIndex(
+  connection: Connection,
+  databaseName: string,
+  tableName: string,
+  indexName: string,
+) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `
+      SELECT 1
+      FROM information_schema.statistics
+      WHERE table_schema = ?
+        AND table_name = ?
+        AND index_name = ?
+      LIMIT 1
+    `,
+    [databaseName, tableName, indexName],
+  );
+  return rows.length > 0;
+}
+
+async function ensureColumn(
+  connection: Connection,
+  databaseName: string,
+  tableName: string,
+  columnName: string,
+  columnDefinition: string,
+) {
+  if (await hasColumn(connection, databaseName, tableName, columnName)) {
+    return;
+  }
+
+  await connection.query(
+    `ALTER TABLE \`${tableName}\` ADD COLUMN ${columnDefinition}`,
+  );
+}
+
+async function hasDuplicateValues(
+  connection: Connection,
+  tableName: string,
+  groupColumns: string[],
+  whereClause?: string,
+) {
+  const quotedColumns = groupColumns
+    .map((column) => `\`${column}\``)
+    .join(", ");
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `
+      SELECT ${quotedColumns}
+      FROM \`${tableName}\`
+      ${whereClause ? `WHERE ${whereClause}` : ""}
+      GROUP BY ${quotedColumns}
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `,
+  );
+  return rows.length > 0;
+}
+
+async function ensureUniqueIndex(
+  connection: Connection,
+  databaseName: string,
+  tableName: string,
+  indexName: string,
+  columns: string[],
+  duplicateWhereClause?: string,
+) {
+  if (await hasIndex(connection, databaseName, tableName, indexName)) {
+    return;
+  }
+
+  if (
+    duplicateWhereClause &&
+    (await hasDuplicateValues(
+      connection,
+      tableName,
+      columns,
+      duplicateWhereClause,
+    ))
+  ) {
+    console.warn(
+      `[Database] Skipped creating ${indexName} because duplicate data already exists in ${tableName}.`,
+    );
+    return;
+  }
+
+  const quotedColumns = columns.map((column) => `\`${column}\``).join(", ");
+  await connection.query(
+    `ALTER TABLE \`${tableName}\` ADD UNIQUE INDEX \`${indexName}\` (${quotedColumns})`,
+  );
+}
+
+async function ensureRuntimeDatabaseSchema() {
+  if (shouldUseLocalStore()) {
+    return;
+  }
+
+  const connection = await mysql.createConnection(getDatabaseUrl());
+  try {
+    const databaseName = await getConnectionDatabaseName(connection);
+
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "schoolLevel",
+      "`schoolLevel` enum('elementary','middle','high','other') NOT NULL DEFAULT 'other'",
+    );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "gradeLevel",
+      "`gradeLevel` int",
+    );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "lifecycleStatus",
+      "`lifecycleStatus` enum('active','on_hold','leaving','ended') NOT NULL DEFAULT 'active'",
+    );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "followUpStatus",
+      "`followUpStatus` enum('none','needs_contact','scheduled','done') NOT NULL DEFAULT 'none'",
+    );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "followUpDueDate",
+      "`followUpDueDate` datetime",
+    );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "attendancePin",
+      "`attendancePin` varchar(4)",
+    );
+    await ensureUniqueIndex(
+      connection,
+      databaseName,
+      "students",
+      "students_attendancePin_unique",
+      ["attendancePin"],
+      "attendancePin IS NOT NULL AND attendancePin <> ''",
+    );
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`commuteLogs\` (
+        \`id\` int AUTO_INCREMENT NOT NULL,
+        \`studentId\` int NOT NULL,
+        \`commuteDate\` varchar(10) NOT NULL,
+        \`checkInAt\` datetime,
+        \`checkOutAt\` datetime,
+        \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+        \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT \`commuteLogs_id\` PRIMARY KEY(\`id\`)
+      )
+    `);
+    await ensureUniqueIndex(
+      connection,
+      databaseName,
+      "commuteLogs",
+      "commuteLogs_studentId_commuteDate_unique",
+      ["studentId", "commuteDate"],
+    );
+
+    await ensureColumn(
+      connection,
+      databaseName,
+      "academyEvents",
+      "eventEndDate",
+      "`eventEndDate` datetime",
+    );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "examSchedules",
+      "examEndDate",
+      "`examEndDate` datetime",
+    );
+  } finally {
+    await connection.end();
+  }
+}
+
+export async function ensureDatabaseReady() {
+  assertPersistenceConfiguration();
+  if (shouldUseLocalStore()) {
+    return;
+  }
+
+  if (!_databaseReadyPromise) {
+    _databaseReadyPromise = ensureRuntimeDatabaseSchema().catch((error) => {
+      _databaseReadyPromise = null;
+      throw error;
+    });
+  }
+
+  await _databaseReadyPromise;
+}
+
+export function getPersistenceMode() {
+  return shouldUseLocalStore() ? "local-store" : "mysql";
 }
 
 function nowIso() {
@@ -48,7 +310,9 @@ function nowIso() {
 function toIso(value: Date | string | null | undefined) {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function toDate(value: Date | string | null | undefined) {
@@ -70,9 +334,12 @@ function normalizeStudentRecord<T extends Record<string, any>>(student: T): T {
     attendancePin: student.attendancePin ?? null,
     schoolLevel: student.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
     gradeLevel: student.gradeLevel ?? DEFAULT_STUDENT_META.gradeLevel,
-    lifecycleStatus: student.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
-    followUpStatus: student.followUpStatus ?? DEFAULT_STUDENT_META.followUpStatus,
-    followUpDueDate: student.followUpDueDate ?? DEFAULT_STUDENT_META.followUpDueDate,
+    lifecycleStatus:
+      student.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
+    followUpStatus:
+      student.followUpStatus ?? DEFAULT_STUDENT_META.followUpStatus,
+    followUpDueDate:
+      student.followUpDueDate ?? DEFAULT_STUDENT_META.followUpDueDate,
   };
 }
 
@@ -80,7 +347,10 @@ function paginate<T>(items: T[], limit: number, offset: number) {
   return items.slice(offset, offset + limit);
 }
 
-function sortByDateDesc<T extends Record<string, any>>(items: T[], key: keyof T) {
+function sortByDateDesc<T extends Record<string, any>>(
+  items: T[],
+  key: keyof T,
+) {
   return [...items].sort((left, right) => {
     const leftTime = new Date(left[key] ?? 0).getTime();
     const rightTime = new Date(right[key] ?? 0).getTime();
@@ -100,17 +370,14 @@ function sameDay(value: Date | string | null | undefined, target: Date) {
 }
 
 export async function getDb() {
+  await ensureDatabaseReady();
+
   if (shouldUseLocalStore()) {
     return null;
   }
 
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect, using local store:", error);
-      _db = null;
-    }
+  if (!_db) {
+    _db = drizzle(getDatabaseUrl());
   }
 
   return _db;
@@ -140,7 +407,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         }
         if (user.name !== undefined) existing.name = user.name ?? null;
         if (user.phone !== undefined) existing.phone = user.phone ?? null;
-        if (user.password !== undefined) existing.password = user.password ?? "";
+        if (user.password !== undefined)
+          existing.password = user.password ?? "";
         if (user.loginMethod !== undefined) {
           existing.loginMethod = user.loginMethod ?? null;
         }
@@ -166,7 +434,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         phone: user.phone ?? null,
         password: user.password ?? "",
         loginMethod: user.loginMethod ?? null,
-        role: user.role ?? (user.openId === ENV.ownerOpenId ? "superadmin" : "student"),
+        role:
+          user.role ??
+          (user.openId === ENV.ownerOpenId ? "superadmin" : "student"),
         isActive: true,
         createdAt: currentTime,
         updatedAt: currentTime,
@@ -187,7 +457,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     const value = user[field];
     if (value === undefined) return;
     const normalized =
-      field === "email" && typeof value === "string" ? normalizeEmail(value) : value ?? null;
+      field === "email" && typeof value === "string"
+        ? normalizeEmail(value)
+        : (value ?? null);
     values[field] = normalized as any;
     updateSet[field] = normalized;
   });
@@ -217,10 +489,16 @@ export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) {
     const store = await readLocalStore();
-    return store.users.find((user) => isActiveRecord(user) && user.openId === openId);
+    return store.users.find(
+      (user) => isActiveRecord(user) && user.openId === openId,
+    );
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -237,7 +515,11 @@ export async function getUserByEmail(email: string) {
     );
   }
 
-  const result = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, normalized))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -306,15 +588,18 @@ export async function updateUserByEmail(
       );
       if (!user) return undefined;
 
-      if (data.email !== undefined) user.email = data.email ? normalizeEmail(data.email) : null;
+      if (data.email !== undefined)
+        user.email = data.email ? normalizeEmail(data.email) : null;
       if (data.openId !== undefined) user.openId = data.openId ?? null;
       if (data.name !== undefined) user.name = data.name ?? null;
       if (data.phone !== undefined) user.phone = data.phone ?? null;
       if (data.password !== undefined) user.password = data.password ?? "";
-      if (data.loginMethod !== undefined) user.loginMethod = data.loginMethod ?? null;
+      if (data.loginMethod !== undefined)
+        user.loginMethod = data.loginMethod ?? null;
       if (data.role !== undefined) user.role = data.role;
       if (data.isActive !== undefined) user.isActive = data.isActive;
-      if (data.lastSignedIn !== undefined) user.lastSignedIn = toIso(data.lastSignedIn);
+      if (data.lastSignedIn !== undefined)
+        user.lastSignedIn = toIso(data.lastSignedIn);
       if (data.deletedAt !== undefined) user.deletedAt = toIso(data.deletedAt);
       user.updatedAt = nowIso();
       return { ...user };
@@ -322,16 +607,20 @@ export async function updateUserByEmail(
   }
 
   const updateData: Record<string, any> = {};
-  if (data.email !== undefined) updateData.email = data.email ? normalizeEmail(data.email) : null;
+  if (data.email !== undefined)
+    updateData.email = data.email ? normalizeEmail(data.email) : null;
   if (data.openId !== undefined) updateData.openId = data.openId ?? null;
   if (data.name !== undefined) updateData.name = data.name ?? null;
   if (data.phone !== undefined) updateData.phone = data.phone ?? null;
   if (data.password !== undefined) updateData.password = data.password ?? "";
-  if (data.loginMethod !== undefined) updateData.loginMethod = data.loginMethod ?? null;
+  if (data.loginMethod !== undefined)
+    updateData.loginMethod = data.loginMethod ?? null;
   if (data.role !== undefined) updateData.role = data.role;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
-  if (data.lastSignedIn !== undefined) updateData.lastSignedIn = data.lastSignedIn;
-  if (data.deletedAt !== undefined) updateData.deletedAt = data.deletedAt ?? null;
+  if (data.lastSignedIn !== undefined)
+    updateData.lastSignedIn = data.lastSignedIn;
+  if (data.deletedAt !== undefined)
+    updateData.deletedAt = data.deletedAt ?? null;
 
   if (Object.keys(updateData).length > 0) {
     await db.update(users).set(updateData).where(eq(users.email, normalized));
@@ -377,7 +666,10 @@ export async function listUsersByRole(
       if (!isActiveRecord(user) || user.role !== role) return false;
       if (!keyword) return true;
       return [user.name, user.email, user.phone]
-        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        )
         .some((value) => value.toLowerCase().includes(keyword));
     });
 
@@ -492,7 +784,10 @@ export async function getStudents(
       const keyword = filters.name.toLowerCase();
       filtered = filtered.filter((student) =>
         [student.name, student.email, student.phone, student.attendancePin]
-          .filter((value): value is string => typeof value === "string" && value.length > 0)
+          .filter(
+            (value): value is string =>
+              typeof value === "string" && value.length > 0,
+          )
           .some((value) => value.toLowerCase().includes(keyword)),
       );
     }
@@ -512,7 +807,9 @@ export async function getStudents(
     }
 
     return {
-      data: paginate(filtered, limit, offset).map((student) => normalizeStudentRecord(student)),
+      data: paginate(filtered, limit, offset).map((student) =>
+        normalizeStudentRecord(student),
+      ),
       total: filtered.length,
     };
   }
@@ -551,7 +848,9 @@ export async function getStudentById(id: number) {
   const db = await getDb();
   if (!db) {
     const store = await readLocalStore();
-    const student = store.students.find((entry) => entry.id === id && isActiveRecord(entry));
+    const student = store.students.find(
+      (entry) => entry.id === id && isActiveRecord(entry),
+    );
     return student ? normalizeStudentRecord(student) : undefined;
   }
 
@@ -600,9 +899,12 @@ export async function createStudent(data: typeof students.$inferInsert) {
         parentName: data.parentName ?? null,
         schoolLevel: data.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
         gradeLevel: data.gradeLevel ?? DEFAULT_STUDENT_META.gradeLevel,
-        lifecycleStatus: data.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
-        followUpStatus: data.followUpStatus ?? DEFAULT_STUDENT_META.followUpStatus,
-        followUpDueDate: toIso(data.followUpDueDate) ?? DEFAULT_STUDENT_META.followUpDueDate,
+        lifecycleStatus:
+          data.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
+        followUpStatus:
+          data.followUpStatus ?? DEFAULT_STUDENT_META.followUpStatus,
+        followUpDueDate:
+          toIso(data.followUpDueDate) ?? DEFAULT_STUDENT_META.followUpDueDate,
         dateOfBirth: toIso(data.dateOfBirth) ?? null,
         address: data.address ?? null,
         notes: data.notes ?? null,
@@ -626,7 +928,10 @@ export async function createStudent(data: typeof students.$inferInsert) {
   return result.length > 0 ? normalizeStudentRecord(result[0]) : undefined;
 }
 
-export async function updateStudent(id: number, data: Partial<typeof students.$inferInsert>) {
+export async function updateStudent(
+  id: number,
+  data: Partial<typeof students.$inferInsert>,
+) {
   if (data.attendancePin !== undefined) {
     data.attendancePin = data.attendancePin
       ? await ensureAttendancePinAvailable(data.attendancePin, id)
@@ -636,7 +941,9 @@ export async function updateStudent(id: number, data: Partial<typeof students.$i
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
-      const student = store.students.find((entry) => entry.id === id && isActiveRecord(entry));
+      const student = store.students.find(
+        (entry) => entry.id === id && isActiveRecord(entry),
+      );
       if (!student) {
         throw new Error("Student not found");
       }
@@ -647,23 +954,31 @@ export async function updateStudent(id: number, data: Partial<typeof students.$i
         student.email = data.email ? normalizeEmail(data.email) : null;
       }
       if (data.phone !== undefined) student.phone = data.phone ?? null;
-      if (data.attendancePin !== undefined) student.attendancePin = data.attendancePin ?? null;
-      if (data.parentPhone !== undefined) student.parentPhone = data.parentPhone ?? null;
-      if (data.parentName !== undefined) student.parentName = data.parentName ?? null;
+      if (data.attendancePin !== undefined)
+        student.attendancePin = data.attendancePin ?? null;
+      if (data.parentPhone !== undefined)
+        student.parentPhone = data.parentPhone ?? null;
+      if (data.parentName !== undefined)
+        student.parentName = data.parentName ?? null;
       if (data.schoolLevel !== undefined) {
-        student.schoolLevel = data.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel;
+        student.schoolLevel =
+          data.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel;
       }
-      if (data.gradeLevel !== undefined) student.gradeLevel = data.gradeLevel ?? null;
+      if (data.gradeLevel !== undefined)
+        student.gradeLevel = data.gradeLevel ?? null;
       if (data.lifecycleStatus !== undefined) {
-        student.lifecycleStatus = data.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus;
+        student.lifecycleStatus =
+          data.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus;
       }
       if (data.followUpStatus !== undefined) {
-        student.followUpStatus = data.followUpStatus ?? DEFAULT_STUDENT_META.followUpStatus;
+        student.followUpStatus =
+          data.followUpStatus ?? DEFAULT_STUDENT_META.followUpStatus;
       }
       if (data.followUpDueDate !== undefined) {
         student.followUpDueDate = toIso(data.followUpDueDate);
       }
-      if (data.dateOfBirth !== undefined) student.dateOfBirth = toIso(data.dateOfBirth);
+      if (data.dateOfBirth !== undefined)
+        student.dateOfBirth = toIso(data.dateOfBirth);
       if (data.address !== undefined) student.address = data.address ?? null;
       if (data.notes !== undefined) student.notes = data.notes ?? null;
       if (data.isActive !== undefined) student.isActive = data.isActive;
@@ -686,10 +1001,12 @@ export async function getCommuteLogsByStudent(
     return store.commuteLogs
       .filter((entry) => entry.studentId === studentId)
       .sort((left, right) => {
-        const leftTime =
-          new Date(left.checkOutAt ?? left.checkInAt ?? left.createdAt ?? 0).getTime();
-        const rightTime =
-          new Date(right.checkOutAt ?? right.checkInAt ?? right.createdAt ?? 0).getTime();
+        const leftTime = new Date(
+          left.checkOutAt ?? left.checkInAt ?? left.createdAt ?? 0,
+        ).getTime();
+        const rightTime = new Date(
+          right.checkOutAt ?? right.checkInAt ?? right.createdAt ?? 0,
+        ).getTime();
         return rightTime - leftTime;
       })
       .slice(0, limit);
@@ -699,7 +1016,11 @@ export async function getCommuteLogsByStudent(
     .select()
     .from(commuteLogs)
     .where(eq(commuteLogs.studentId, studentId))
-    .orderBy(desc(commuteLogs.commuteDate), desc(commuteLogs.checkInAt), desc(commuteLogs.id))
+    .orderBy(
+      desc(commuteLogs.commuteDate),
+      desc(commuteLogs.checkInAt),
+      desc(commuteLogs.id),
+    )
     .limit(limit);
 }
 
@@ -707,7 +1028,9 @@ export async function softDeleteStudent(id: number) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
-      const student = store.students.find((entry) => entry.id === id && isActiveRecord(entry));
+      const student = store.students.find(
+        (entry) => entry.id === id && isActiveRecord(entry),
+      );
       if (!student) {
         throw new Error("Student not found");
       }
@@ -718,14 +1041,19 @@ export async function softDeleteStudent(id: number) {
     });
   }
 
-  return db.update(students).set({ deletedAt: new Date() }).where(eq(students.id, id));
+  return db
+    .update(students)
+    .set({ deletedAt: new Date() })
+    .where(eq(students.id, id));
 }
 
 export async function getClasses(limit: number = 50, offset: number = 0) {
   const db = await getDb();
   if (!db) {
     const store = await readLocalStore();
-    const active = store.classes.filter((classItem) => isActiveRecord(classItem));
+    const active = store.classes.filter((classItem) =>
+      isActiveRecord(classItem),
+    );
     return {
       data: paginate(active, limit, offset),
       total: active.length,
@@ -749,7 +1077,9 @@ export async function getClassById(id: number) {
   const db = await getDb();
   if (!db) {
     const store = await readLocalStore();
-    return store.classes.find((classItem) => classItem.id === id && isActiveRecord(classItem));
+    return store.classes.find(
+      (classItem) => classItem.id === id && isActiveRecord(classItem),
+    );
   }
 
   const result = await db
@@ -785,11 +1115,16 @@ export async function createClass(data: typeof classes.$inferInsert) {
   return db.insert(classes).values(data);
 }
 
-export async function updateClass(id: number, data: Partial<typeof classes.$inferInsert>) {
+export async function updateClass(
+  id: number,
+  data: Partial<typeof classes.$inferInsert>,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
-      const classItem = store.classes.find((entry) => entry.id === id && isActiveRecord(entry));
+      const classItem = store.classes.find(
+        (entry) => entry.id === id && isActiveRecord(entry),
+      );
       if (!classItem) {
         throw new Error("Class not found");
       }
@@ -798,7 +1133,8 @@ export async function updateClass(id: number, data: Partial<typeof classes.$infe
       if (data.teacherId !== undefined) classItem.teacherId = data.teacherId;
       if (data.capacity !== undefined) classItem.capacity = data.capacity;
       if (data.room !== undefined) classItem.room = data.room ?? null;
-      if (data.description !== undefined) classItem.description = data.description ?? null;
+      if (data.description !== undefined)
+        classItem.description = data.description ?? null;
       if (data.isActive !== undefined) classItem.isActive = data.isActive;
       classItem.updatedAt = nowIso();
       return { ...classItem };
@@ -815,15 +1151,21 @@ export async function getClassSchedules(classId: number) {
     return store.classSchedules
       .filter((schedule) => schedule.classId === classId)
       .sort((left, right) => {
-        if (left.dayOfWeek !== right.dayOfWeek) return left.dayOfWeek - right.dayOfWeek;
+        if (left.dayOfWeek !== right.dayOfWeek)
+          return left.dayOfWeek - right.dayOfWeek;
         return String(left.startTime).localeCompare(String(right.startTime));
       });
   }
 
-  return db.select().from(classSchedules).where(eq(classSchedules.classId, classId));
+  return db
+    .select()
+    .from(classSchedules)
+    .where(eq(classSchedules.classId, classId));
 }
 
-export async function createClassSchedule(data: typeof classSchedules.$inferInsert) {
+export async function createClassSchedule(
+  data: typeof classSchedules.$inferInsert,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -869,7 +1211,10 @@ export async function updateClassSchedule(
 export async function replaceClassSchedules(
   classId: number,
   schedules: Array<
-    Pick<typeof classSchedules.$inferInsert, "dayOfWeek" | "startTime" | "endTime">
+    Pick<
+      typeof classSchedules.$inferInsert,
+      "dayOfWeek" | "startTime" | "endTime"
+    >
   >,
 ) {
   const normalizedSchedules = Array.from(
@@ -889,7 +1234,9 @@ export async function replaceClassSchedules(
   if (!db) {
     return updateLocalStore((store) => {
       const currentTime = nowIso();
-      store.classSchedules = store.classSchedules.filter((entry) => entry.classId !== classId);
+      store.classSchedules = store.classSchedules.filter(
+        (entry) => entry.classId !== classId,
+      );
 
       for (const schedule of normalizedSchedules) {
         store.classSchedules.push({
@@ -956,13 +1303,18 @@ export async function getStudentEnrollmentIds(studentId: number) {
   return rows.map((row) => row.classId);
 }
 
-export async function syncStudentEnrollments(studentId: number, classIds: number[]) {
+export async function syncStudentEnrollments(
+  studentId: number,
+  classIds: number[],
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
       const currentTime = nowIso();
       const normalizedClassIds = Array.from(new Set(classIds));
-      const existing = store.classEnrollments.filter((entry) => entry.studentId === studentId);
+      const existing = store.classEnrollments.filter(
+        (entry) => entry.studentId === studentId,
+      );
 
       for (const row of existing) {
         const shouldBeActive = normalizedClassIds.includes(row.classId);
@@ -1054,12 +1406,17 @@ export async function getAttendance(
   if (!db) {
     const store = await readLocalStore();
     const items = store.attendance
-      .filter((record) => record.classId === classId && sameDay(record.attendanceDate, date))
+      .filter(
+        (record) =>
+          record.classId === classId && sameDay(record.attendanceDate, date),
+      )
       .map((record) => ({
         ...record,
         studentName:
-          store.students.find((student) => student.id === record.studentId && isActiveRecord(student))
-            ?.name ?? null,
+          store.students.find(
+            (student) =>
+              student.id === record.studentId && isActiveRecord(student),
+          )?.name ?? null,
       }));
 
     return {
@@ -1180,7 +1537,10 @@ export async function recordAttendance(data: typeof attendance.$inferInsert) {
   return db.insert(attendance).values(data);
 }
 
-export async function updateAttendance(id: number, data: Partial<typeof attendance.$inferInsert>) {
+export async function updateAttendance(
+  id: number,
+  data: Partial<typeof attendance.$inferInsert>,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -1188,10 +1548,12 @@ export async function updateAttendance(id: number, data: Partial<typeof attendan
       if (!record) throw new Error("Attendance not found");
       if (data.classId !== undefined) record.classId = data.classId;
       if (data.studentId !== undefined) record.studentId = data.studentId;
-      if (data.attendanceDate !== undefined) record.attendanceDate = toIso(data.attendanceDate);
+      if (data.attendanceDate !== undefined)
+        record.attendanceDate = toIso(data.attendanceDate);
       if (data.status !== undefined) record.status = data.status;
       if (data.notes !== undefined) record.notes = data.notes ?? null;
-      if (data.recordedBy !== undefined) record.recordedBy = data.recordedBy ?? null;
+      if (data.recordedBy !== undefined)
+        record.recordedBy = data.recordedBy ?? null;
       record.updatedAt = nowIso();
       return { ...record };
     });
@@ -1210,7 +1572,8 @@ export async function getNotices(
     const store = await readLocalStore();
     const filtered = sortByDateDesc(
       store.notices.filter(
-        (notice) => isActiveRecord(notice) && (!onlyPublished || notice.isPublished),
+        (notice) =>
+          isActiveRecord(notice) && (!onlyPublished || notice.isPublished),
       ),
       "createdAt",
     );
@@ -1245,7 +1608,9 @@ export async function getNoticeById(id: number) {
   const db = await getDb();
   if (!db) {
     const store = await readLocalStore();
-    return store.notices.find((notice) => notice.id === id && isActiveRecord(notice));
+    return store.notices.find(
+      (notice) => notice.id === id && isActiveRecord(notice),
+    );
   }
 
   const result = await db
@@ -1282,21 +1647,30 @@ export async function createNotice(data: typeof notices.$inferInsert) {
   return db.insert(notices).values(data);
 }
 
-export async function updateNotice(id: number, data: Partial<typeof notices.$inferInsert>) {
+export async function updateNotice(
+  id: number,
+  data: Partial<typeof notices.$inferInsert>,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
-      const notice = store.notices.find((entry) => entry.id === id && isActiveRecord(entry));
+      const notice = store.notices.find(
+        (entry) => entry.id === id && isActiveRecord(entry),
+      );
       if (!notice) throw new Error("Notice not found");
       if (data.title !== undefined) notice.title = data.title;
       if (data.content !== undefined) notice.content = data.content;
       if (data.createdBy !== undefined) notice.createdBy = data.createdBy;
       if (data.targetRoles !== undefined) notice.targetRoles = data.targetRoles;
-      if (data.targetClassIds !== undefined) notice.targetClassIds = data.targetClassIds;
-      if (data.attachmentUrls !== undefined) notice.attachmentUrls = data.attachmentUrls;
+      if (data.targetClassIds !== undefined)
+        notice.targetClassIds = data.targetClassIds;
+      if (data.attachmentUrls !== undefined)
+        notice.attachmentUrls = data.attachmentUrls;
       if (data.isPublished !== undefined) notice.isPublished = data.isPublished;
-      if (data.publishedAt !== undefined) notice.publishedAt = toIso(data.publishedAt);
-      if ((data as any).deletedAt !== undefined) notice.deletedAt = toIso((data as any).deletedAt);
+      if (data.publishedAt !== undefined)
+        notice.publishedAt = toIso(data.publishedAt);
+      if ((data as any).deletedAt !== undefined)
+        notice.deletedAt = toIso((data as any).deletedAt);
       notice.updatedAt = nowIso();
       return { ...notice };
     });
@@ -1330,7 +1704,8 @@ export async function saveGrade(data: typeof grades.$inferInsert) {
       const existing = data.mockExamMonth
         ? store.grades.find(
             (grade) =>
-              grade.studentId === data.studentId && grade.mockExamMonth === data.mockExamMonth,
+              grade.studentId === data.studentId &&
+              grade.mockExamMonth === data.mockExamMonth,
           )
         : undefined;
 
@@ -1364,7 +1739,10 @@ export async function saveGrade(data: typeof grades.$inferInsert) {
       .select()
       .from(grades)
       .where(
-        and(eq(grades.studentId, data.studentId), eq(grades.mockExamMonth, data.mockExamMonth)),
+        and(
+          eq(grades.studentId, data.studentId),
+          eq(grades.mockExamMonth, data.mockExamMonth),
+        ),
       );
 
     if (existing.length > 0) {
@@ -1375,7 +1753,10 @@ export async function saveGrade(data: typeof grades.$inferInsert) {
   return db.insert(grades).values(data);
 }
 
-export async function updateGrade(id: number, data: Partial<typeof grades.$inferInsert>) {
+export async function updateGrade(
+  id: number,
+  data: Partial<typeof grades.$inferInsert>,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -1444,7 +1825,10 @@ export async function listExamSchedules() {
   return db.select().from(examSchedules).orderBy(desc(examSchedules.examDate));
 }
 
-export async function updateExamSchedule(id: number, data: Partial<typeof examSchedules.$inferInsert>) {
+export async function updateExamSchedule(
+  id: number,
+  data: Partial<typeof examSchedules.$inferInsert>,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -1452,9 +1836,11 @@ export async function updateExamSchedule(id: number, data: Partial<typeof examSc
       if (!schedule) throw new Error("Exam schedule not found");
       if (data.examName !== undefined) schedule.examName = data.examName;
       if (data.examDate !== undefined) schedule.examDate = toIso(data.examDate);
-      if (data.examEndDate !== undefined) schedule.examEndDate = toIso(data.examEndDate);
+      if (data.examEndDate !== undefined)
+        schedule.examEndDate = toIso(data.examEndDate);
       if (data.subject !== undefined) schedule.subject = data.subject ?? null;
-      if (data.description !== undefined) schedule.description = data.description ?? null;
+      if (data.description !== undefined)
+        schedule.description = data.description ?? null;
       schedule.updatedAt = nowIso();
       return { ...schedule };
     });
@@ -1467,7 +1853,9 @@ export async function deleteExamSchedule(id: number) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
-      store.examSchedules = store.examSchedules.filter((entry) => entry.id !== id);
+      store.examSchedules = store.examSchedules.filter(
+        (entry) => entry.id !== id,
+      );
       return { success: true };
     });
   }
@@ -1514,7 +1902,10 @@ export async function listAcademyEvents() {
   return db.select().from(academyEvents).orderBy(desc(academyEvents.eventDate));
 }
 
-export async function updateAcademyEvent(id: number, data: Partial<typeof academyEvents.$inferInsert>) {
+export async function updateAcademyEvent(
+  id: number,
+  data: Partial<typeof academyEvents.$inferInsert>,
+) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -1522,9 +1913,11 @@ export async function updateAcademyEvent(id: number, data: Partial<typeof academ
       if (!event) throw new Error("Academy event not found");
       if (data.eventName !== undefined) event.eventName = data.eventName;
       if (data.eventDate !== undefined) event.eventDate = toIso(data.eventDate);
-      if (data.eventEndDate !== undefined) event.eventEndDate = toIso(data.eventEndDate);
+      if (data.eventEndDate !== undefined)
+        event.eventEndDate = toIso(data.eventEndDate);
       if (data.eventType !== undefined) event.eventType = data.eventType;
-      if (data.description !== undefined) event.description = data.description ?? null;
+      if (data.description !== undefined)
+        event.description = data.description ?? null;
       event.updatedAt = nowIso();
       return { ...event };
     });
@@ -1537,7 +1930,9 @@ export async function deleteAcademyEvent(id: number) {
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
-      store.academyEvents = store.academyEvents.filter((entry) => entry.id !== id);
+      store.academyEvents = store.academyEvents.filter(
+        (entry) => entry.id !== id,
+      );
       return { success: true };
     });
   }
@@ -1560,7 +1955,8 @@ export async function createTuitionPayment(data: {
     return updateLocalStore((store) => {
       const currentTime = nowIso();
       const existing = store.tuitionPayments.find(
-        (payment) => payment.studentId === data.studentId && payment.month === data.month,
+        (payment) =>
+          payment.studentId === data.studentId && payment.month === data.month,
       );
 
       if (existing) {
@@ -1595,7 +1991,12 @@ export async function createTuitionPayment(data: {
   const existing = await db
     .select({ id: tuitionPayments.id })
     .from(tuitionPayments)
-    .where(and(eq(tuitionPayments.studentId, data.studentId), eq(tuitionPayments.month, data.month)))
+    .where(
+      and(
+        eq(tuitionPayments.studentId, data.studentId),
+        eq(tuitionPayments.month, data.month),
+      ),
+    )
     .limit(1);
 
   if (existing.length > 0) {
@@ -1620,7 +2021,9 @@ export async function getTuitionPaymentsByStudent(studentId: number) {
   if (!db) {
     const store = await readLocalStore();
     return sortByDateDesc(
-      store.tuitionPayments.filter((payment) => payment.studentId === studentId),
+      store.tuitionPayments.filter(
+        (payment) => payment.studentId === studentId,
+      ),
       "month",
     );
   }
@@ -1664,15 +2067,23 @@ export async function getTuitionPaymentsByMonth(month: string) {
     return store.tuitionPayments.filter((payment) => payment.month === month);
   }
 
-  return db.select().from(tuitionPayments).where(eq(tuitionPayments.month, month));
+  return db
+    .select()
+    .from(tuitionPayments)
+    .where(eq(tuitionPayments.month, month));
 }
 
 export async function getOverduePayments() {
   const db = await getDb();
   if (!db) {
     const store = await readLocalStore();
-    return store.tuitionPayments.filter((payment) => payment.status === "overdue");
+    return store.tuitionPayments.filter(
+      (payment) => payment.status === "overdue",
+    );
   }
 
-  return db.select().from(tuitionPayments).where(eq(tuitionPayments.status, "overdue"));
+  return db
+    .select()
+    .from(tuitionPayments)
+    .where(eq(tuitionPayments.status, "overdue"));
 }

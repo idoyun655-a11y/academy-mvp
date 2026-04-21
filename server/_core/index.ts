@@ -13,17 +13,25 @@ dotenv.config({ path: path.resolve(projectRoot, ".env") });
 const port = Number(process.env.PORT ?? 3000);
 
 async function createApp() {
-  const [{ appRouter }, { createContext }] = await Promise.all([
+  const [
+    { appRouter },
+    { createContext },
+    { ensureDatabaseReady, getPersistenceMode },
+  ] = await Promise.all([
     import("../routers"),
     import("./context"),
+    import("../db"),
   ]);
+
+  await ensureDatabaseReady();
+  console.log(`[academy] persistence mode: ${getPersistenceMode()}`);
 
   const app = express();
 
   app.use(express.json());
 
   app.get("/health", (_req, res) => {
-    res.status(200).json({ ok: true });
+    res.status(200).json({ ok: true, persistence: getPersistenceMode() });
   });
 
   app.use(
@@ -31,7 +39,7 @@ async function createApp() {
     trpcExpress.createExpressMiddleware({
       router: appRouter,
       createContext,
-    })
+    }),
   );
 
   if (process.env.NODE_ENV === "production") {
@@ -68,12 +76,12 @@ async function createApp() {
 }
 
 createApp()
-  .then(app => {
+  .then((app) => {
     app.listen(port, () => {
       console.log(`[academy] server listening on http://localhost:${port}`);
     });
   })
-  .catch(error => {
+  .catch((error) => {
     console.error("[academy] failed to start", error);
     process.exit(1);
   });
