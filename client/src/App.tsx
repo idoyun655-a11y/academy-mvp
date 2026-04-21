@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminCalendarMode from "@/pages/AdminCalendarMode";
+import AdminAttendanceMode from "@/pages/AdminAttendanceMode";
 import AdminStudents from "@/pages/AdminStudents";
 import AdminClasses from "@/pages/AdminClasses";
 import AdminAttendance from "@/pages/AdminAttendance";
@@ -35,6 +36,7 @@ function Router() {
       {/* Admin Routes */}
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/admin/calendar-mode"} component={AdminCalendarMode} />
+      <Route path={"/admin/attendance-mode"} component={AdminAttendanceMode} />
       <Route path={"/admin/students"} component={AdminStudents} />
       <Route path={"/admin/classes"} component={AdminClasses} />
       <Route path={"/admin/attendance"} component={AdminAttendance} />
