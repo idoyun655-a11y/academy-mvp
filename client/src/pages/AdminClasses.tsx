@@ -318,7 +318,7 @@ export default function AdminClasses() {
           </div>
           <button
             onClick={openCreateModal}
-            className="rounded-lg px-4 py-3 text-sm font-medium"
+            className="w-full rounded-lg px-4 py-3 text-sm font-medium md:w-auto"
             style={{
               backgroundColor: theme.colors.accent.primary,
               color: "#fff",
@@ -400,7 +400,11 @@ export default function AdminClasses() {
 
       {modalMode && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <Card variant="elevated" padding="lg" className="w-full max-w-2xl">
+          <Card
+            variant="elevated"
+            padding="lg"
+            className="max-h-[90vh] w-full max-w-2xl overflow-hidden"
+          >
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h2
@@ -427,7 +431,10 @@ export default function AdminClasses() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form
+              onSubmit={handleSubmit}
+              className="max-h-[calc(90vh-96px)] space-y-5 overflow-y-auto pr-1"
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label

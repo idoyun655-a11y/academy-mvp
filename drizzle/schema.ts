@@ -11,6 +11,7 @@ import {
   tinyint,
   json,
   longtext,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 /**
@@ -45,6 +46,7 @@ export const students = mysqlTable("students", {
   name: varchar("name", { length: 100 }).notNull(),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 20 }),
+  attendancePin: varchar("attendancePin", { length: 4 }).unique(),
   parentPhone: varchar("parentPhone", { length: 20 }),
   parentName: varchar("parentName", { length: 100 }),
   schoolLevel: mysqlEnum("schoolLevel", ["elementary", "middle", "high", "other"])
@@ -161,6 +163,28 @@ export const attendance = mysqlTable("attendance", {
 
 export type Attendance = typeof attendance.$inferSelect;
 export type InsertAttendance = typeof attendance.$inferInsert;
+
+export const commuteLogs = mysqlTable(
+  "commuteLogs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    studentId: int("studentId").notNull(),
+    commuteDate: varchar("commuteDate", { length: 10 }).notNull(),
+    checkInAt: datetime("checkInAt"),
+    checkOutAt: datetime("checkOutAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    studentDateUnique: uniqueIndex("commuteLogs_studentId_commuteDate_unique").on(
+      table.studentId,
+      table.commuteDate,
+    ),
+  }),
+);
+
+export type CommuteLog = typeof commuteLogs.$inferSelect;
+export type InsertCommuteLog = typeof commuteLogs.$inferInsert;
 
 /**
  * Notices table: 공지사항

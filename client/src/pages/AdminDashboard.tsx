@@ -17,9 +17,9 @@ const QUEUE_ITEMS = [
   },
   { key: "overdue", label: "미납 학생", view: "overdue", color: theme.colors.status.error },
   {
-    key: "attendanceRisk",
-    label: "출결 위험",
-    view: "attendance_risk",
+    key: "pendingCheckout",
+    label: "미하원 학생",
+    view: "pending_checkout",
     color: theme.colors.status.warning,
   },
   { key: "followUp", label: "상담 필요", view: "follow_up", color: theme.colors.status.info },
@@ -40,24 +40,27 @@ export default function AdminDashboard() {
       <div className="space-y-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-4xl font-bold" style={{ color: theme.colors.text.primary }}>
+            <h1
+              className="text-3xl font-bold md:text-4xl"
+              style={{ color: theme.colors.text.primary }}
+            >
               관리자 대시보드
             </h1>
             <p className="mt-2 text-base" style={{ color: theme.colors.text.tertiary }}>
-              학생, 출결, 수납, 공지, 일정 현황을 한 화면에서 확인합니다.
+              학생, 등하원, 수납, 공지, 일정을 한 화면에서 확인합니다.
             </p>
           </div>
           <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
-            마지막 동기화: {formatDateTime(data?.syncedAt)}
+            마지막 동기화 {formatDateTime(data?.syncedAt)}
           </p>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="전체 학생" value={data?.kpis.totalStudents ?? 0} color="info" />
           <StatCard label="운영 반" value={data?.kpis.totalClasses ?? 0} color="success" />
-          <StatCard label="오늘 출결 기록" value={data?.kpis.todayAttendanceCount ?? 0} color="warning" />
-          <StatCard label="전체 출석률" value={`${data?.kpis.attendanceRate ?? 0}%`} color="success" />
-          <StatCard label="게시 공지" value={data?.kpis.publishedNotices ?? 0} color="default" />
+          <StatCard label="오늘 등원" value={data?.kpis.todayCheckInCount ?? 0} color="success" />
+          <StatCard label="오늘 하원" value={data?.kpis.todayCheckOutCount ?? 0} color="info" />
+          <StatCard label="현재 원내" value={data?.kpis.onSiteCount ?? 0} color="warning" />
           <StatCard label="미납 건수" value={data?.kpis.overduePayments ?? 0} color="error" />
         </div>
 
@@ -68,7 +71,7 @@ export default function AdminDashboard() {
                 학생 운영 큐
               </h2>
               <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
-                클릭하면 해당 저장된 보기로 바로 이동합니다.
+                클릭하면 해당 저장 보기로 바로 이동합니다.
               </p>
             </div>
           </div>
@@ -141,14 +144,14 @@ export default function AdminDashboard() {
             </h2>
             <div className="space-y-3">
               <div className="rounded-lg p-4" style={{ backgroundColor: theme.colors.background.secondary }}>
-                <p style={{ color: theme.colors.text.tertiary }}>결석 누적</p>
-                <p className="mt-1 text-2xl font-bold" style={{ color: theme.colors.status.error }}>
-                  {data?.alerts.absentCount ?? 0}
+                <p style={{ color: theme.colors.text.tertiary }}>미하원 학생</p>
+                <p className="mt-1 text-2xl font-bold" style={{ color: theme.colors.status.warning }}>
+                  {data?.alerts.pendingCheckoutCount ?? 0}
                 </p>
               </div>
               <div className="rounded-lg p-4" style={{ backgroundColor: theme.colors.background.secondary }}>
                 <p style={{ color: theme.colors.text.tertiary }}>수납 대기</p>
-                <p className="mt-1 text-2xl font-bold" style={{ color: theme.colors.status.warning }}>
+                <p className="mt-1 text-2xl font-bold" style={{ color: theme.colors.status.error }}>
                   {data?.alerts.pendingPayments ?? 0}
                 </p>
               </div>

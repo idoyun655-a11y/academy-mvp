@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-const MOBILE_BREAKPOINT = 768;
+// Tablets and narrow desktop-mode mobile browsers should use the compact UI.
+const MOBILE_BREAKPOINT = 1024;
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = useState(() => {

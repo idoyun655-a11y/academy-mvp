@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import {
-  attendance,
   classEnrollments,
   classSchedules,
   classes,
+  commuteLogs,
   grades,
   notices,
   students,
@@ -11,7 +11,8 @@ import {
   users,
   type User,
 } from "../drizzle/schema";
-import { getDb, getStudentById, getStudentByUserId } from "./db";
+import { getTodayCommuteFeed, getTodayCommuteSummary, getCommuteTodayStatus } from "./commute";
+import { getCommuteLogsByStudent, getDb, getStudentById, getStudentByUserId } from "./db";
 import { readLocalStore } from "./localStore";
 import { getStudentOpsSummary } from "./studentOps";
 
@@ -70,7 +71,7 @@ function formatActivityTime(date: Date | string | null | undefined) {
   return new Date(date).toISOString();
 }
 
-function isActiveRecord(record: { deletedAt?: string | null } | undefined) {
+function isActiveRecord(record: { deletedAt?: string | Date | null } | undefined) {
   return Boolean(record) && !record?.deletedAt;
 }
 
@@ -80,6 +81,42 @@ function sortDesc<T extends Record<string, any>>(items: T[], key: keyof T) {
     const rightTime = new Date(right[key] ?? 0).getTime();
     return rightTime - leftTime;
   });
+}
+
+function getLatestDate(values: Array<string | Date | null | undefined>) {
+  let latest: Date | null = null;
+
+  values.forEach((value) => {
+    if (!value) return;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return;
+    if (!latest || date > latest) latest = date;
+  });
+
+  return latest;
+}
+
+function normalizeCommuteRecords(records: Array<any>) {
+  const sorted = [...records].sort((left, right) => {
+    const leftTime =
+      new Date(left.checkOutAt ?? left.checkInAt ?? left.createdAt ?? 0).getTime();
+    const rightTime =
+      new Date(right.checkOutAt ?? right.checkInAt ?? right.createdAt ?? 0).getTime();
+    return rightTime - leftTime;
+  });
+
+  return {
+    records: sorted.map((record) => ({
+      ...record,
+      status: record.checkOutAt ? "checked_out" : record.checkInAt ? "checked_in" : "not_arrived",
+    })),
+    summary: {
+      total: sorted.length,
+    },
+    todayStatus: getCommuteTodayStatus(sorted),
+    latestCheckInAt: getLatestDate(sorted.map((record) => record.checkInAt)),
+    latestCheckOutAt: getLatestDate(sorted.map((record) => record.checkOutAt)),
+  };
 }
 
 async function getLinkedStudentsForUser(user: User) {
@@ -158,10 +195,7 @@ async function getLocalStudentPortalSnapshot(studentId: number, viewerRoles: str
   if (!student) return null;
 
   const activeEnrollments = store.classEnrollments.filter(
-    (item) =>
-      item.studentId === studentId &&
-      item.status === "active" &&
-      isActiveRecord(item),
+    (item) => item.studentId === studentId && item.status === "active" && isActiveRecord(item),
   );
 
   const classMap = new Map<number, any>();
@@ -198,14 +232,9 @@ async function getLocalStudentPortalSnapshot(studentId: number, viewerRoles: str
     }));
   }
 
-  const attendanceRows = sortDesc(
-    store.attendance
-      .filter((item) => item.studentId === studentId)
-      .map((item) => ({
-        ...item,
-        className: store.classes.find((candidate) => candidate.id === item.classId)?.name ?? null,
-      })),
-    "attendanceDate",
+  const commuteRows = sortDesc(
+    store.commuteLogs.filter((item) => item.studentId === studentId),
+    "commuteDate",
   ).slice(0, 60);
 
   const visibleNoticeRows = sortDesc(
@@ -218,9 +247,7 @@ async function getLocalStudentPortalSnapshot(studentId: number, viewerRoles: str
       const targetRoles = toStringArray(notice.targetRoles);
       const targetClassIds = toNumberArray((notice as any).targetClassIds);
       const matchesRole =
-        targetRoles.length === 0
-          ? true
-          : viewerRoles.some((role) => targetRoles.includes(role));
+        targetRoles.length === 0 ? true : viewerRoles.some((role) => targetRoles.includes(role));
       const matchesClass =
         targetClassIds.length === 0
           ? true
@@ -254,52 +281,16 @@ async function getLocalStudentPortalSnapshot(studentId: number, viewerRoles: str
     "month",
   ).slice(0, 12);
 
-  const attendanceSummary = attendanceRows.reduce(
-    (summary, record) => {
-      if (record.status === "present") summary.present += 1;
-      if (record.status === "late") summary.late += 1;
-      if (record.status === "absent") summary.absent += 1;
-      if (record.status === "early_leave") summary.earlyLeave += 1;
-      return summary;
-    },
-    { present: 0, late: 0, absent: 0, earlyLeave: 0 },
-  );
-
-  const attendanceTotal =
-    attendanceSummary.present +
-    attendanceSummary.late +
-    attendanceSummary.absent +
-    attendanceSummary.earlyLeave;
-
-  const attendanceRate =
-    attendanceTotal > 0
-      ? Math.round(
-          ((attendanceSummary.present +
-            attendanceSummary.late +
-            attendanceSummary.earlyLeave) /
-            attendanceTotal) *
-            100,
-        )
-      : 0;
-
   return {
     student,
     summary: {
       totalClasses: classMap.size,
       totalNotices: noticesForViewer.length,
-      attendanceRate,
       pendingPayments: paymentRows.filter((payment) => payment.status !== "paid").length,
       latestSchoolGrade: latestSchoolGrade?.schoolGrade ?? null,
     },
     classes: Array.from(classMap.values()),
-    attendance: {
-      records: attendanceRows,
-      summary: {
-        ...attendanceSummary,
-        total: attendanceTotal,
-        rate: attendanceRate,
-      },
-    },
+    commute: normalizeCommuteRecords(commuteRows),
     notices: noticesForViewer,
     grades: {
       mockExams,
@@ -330,10 +321,7 @@ async function getDbStudentPortalSnapshot(studentId: number, viewerRoles: string
       endTime: classSchedules.endTime,
     })
     .from(classEnrollments)
-    .innerJoin(
-      classes,
-      and(eq(classEnrollments.classId, classes.id), isNull(classes.deletedAt)),
-    )
+    .innerJoin(classes, and(eq(classEnrollments.classId, classes.id), isNull(classes.deletedAt)))
     .leftJoin(classSchedules, eq(classSchedules.classId, classes.id))
     .leftJoin(users, eq(users.id, classes.teacherId))
     .where(and(eq(classEnrollments.studentId, studentId), isNull(classEnrollments.deletedAt)))
@@ -362,21 +350,7 @@ async function getDbStudentPortalSnapshot(studentId: number, viewerRoles: string
     }
   }
 
-  const attendanceRows = await db
-    .select({
-      id: attendance.id,
-      classId: attendance.classId,
-      className: classes.name,
-      attendanceDate: attendance.attendanceDate,
-      status: attendance.status,
-      notes: attendance.notes,
-      createdAt: attendance.createdAt,
-    })
-    .from(attendance)
-    .leftJoin(classes, eq(classes.id, attendance.classId))
-    .where(eq(attendance.studentId, studentId))
-    .orderBy(desc(attendance.attendanceDate))
-    .limit(60);
+  const commuteRows = await getCommuteLogsByStudent(studentId, 60);
 
   const visibleNoticeRows = await db
     .select({
@@ -400,9 +374,7 @@ async function getDbStudentPortalSnapshot(studentId: number, viewerRoles: string
       const targetRoles = toStringArray(notice.targetRoles);
       const targetClassIds = toNumberArray((notice as any).targetClassIds);
       const matchesRole =
-        targetRoles.length === 0
-          ? true
-          : viewerRoles.some((role) => targetRoles.includes(role));
+        targetRoles.length === 0 ? true : viewerRoles.some((role) => targetRoles.includes(role));
       const matchesClass =
         targetClassIds.length === 0
           ? true
@@ -440,52 +412,16 @@ async function getDbStudentPortalSnapshot(studentId: number, viewerRoles: string
     .orderBy(desc(tuitionPayments.month))
     .limit(12);
 
-  const attendanceSummary = attendanceRows.reduce(
-    (summary, record) => {
-      if (record.status === "present") summary.present += 1;
-      if (record.status === "late") summary.late += 1;
-      if (record.status === "absent") summary.absent += 1;
-      if (record.status === "early_leave") summary.earlyLeave += 1;
-      return summary;
-    },
-    { present: 0, late: 0, absent: 0, earlyLeave: 0 },
-  );
-
-  const attendanceTotal =
-    attendanceSummary.present +
-    attendanceSummary.late +
-    attendanceSummary.absent +
-    attendanceSummary.earlyLeave;
-
-  const attendanceRate =
-    attendanceTotal > 0
-      ? Math.round(
-          ((attendanceSummary.present +
-            attendanceSummary.late +
-            attendanceSummary.earlyLeave) /
-            attendanceTotal) *
-            100,
-        )
-      : 0;
-
   return {
     student,
     summary: {
       totalClasses: classMap.size,
       totalNotices: noticesForViewer.length,
-      attendanceRate,
       pendingPayments: paymentRows.filter((payment) => payment.status !== "paid").length,
       latestSchoolGrade: latestSchoolGrade?.schoolGrade ?? null,
     },
     classes: Array.from(classMap.values()),
-    attendance: {
-      records: attendanceRows,
-      summary: {
-        ...attendanceSummary,
-        total: attendanceTotal,
-        rate: attendanceRate,
-      },
-    },
+    commute: normalizeCommuteRecords(commuteRows),
     notices: noticesForViewer,
     grades: {
       mockExams,
@@ -518,54 +454,17 @@ export async function getLinkedPortalSnapshots(user: User) {
 
 export async function getAdminDashboardSnapshot() {
   const studentOpsSummary = await getStudentOpsSummary();
+  const commuteSummary = await getTodayCommuteSummary();
+  const commuteFeed = await getTodayCommuteFeed(6);
   const db = await getDb();
+
   if (!db) {
     const store = await readLocalStore();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const endOfToday = new Date(today);
-    endOfToday.setHours(23, 59, 59, 999);
-
     const activeStudents = store.students.filter((student) => isActiveRecord(student));
     const activeClasses = store.classes.filter((classItem) => isActiveRecord(classItem));
     const activeNotices = store.notices.filter((notice) => isActiveRecord(notice) && notice.isPublished);
     const overduePayments = store.tuitionPayments.filter((payment) => payment.status === "overdue");
     const pendingPayments = store.tuitionPayments.filter((payment) => payment.status === "pending");
-    const todayAttendance = store.attendance.filter((record) => {
-      const date = new Date(record.attendanceDate);
-      return date >= today && date <= endOfToday;
-    });
-
-    const attendanceStats = store.attendance.reduce(
-      (acc, row) => {
-        acc[row.status] = (acc[row.status] ?? 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-
-    const attendanceTotal = Object.values(attendanceStats).reduce<number>(
-      (sum, count) => sum + Number(count || 0),
-      0,
-    );
-    const attendanceRate =
-      attendanceTotal > 0
-        ? Math.round(
-            (((attendanceStats.present || 0) +
-              (attendanceStats.late || 0) +
-              (attendanceStats.early_leave || 0)) /
-              attendanceTotal) *
-              100,
-          )
-        : 0;
-
-    const recentAttendance = sortDesc(store.attendance, "attendanceDate").slice(0, 5).map((item) => ({
-      id: item.id,
-      studentName: store.students.find((student) => student.id === item.studentId)?.name ?? "학생",
-      className: store.classes.find((classItem) => classItem.id === item.classId)?.name ?? "반",
-      status: item.status,
-      attendanceDate: item.attendanceDate,
-    }));
 
     const recentNotices = sortDesc(store.notices.filter((notice) => isActiveRecord(notice)), "createdAt")
       .slice(0, 5)
@@ -577,12 +476,12 @@ export async function getAdminDashboardSnapshot() {
       }));
 
     const recentActivities = [
-      ...recentAttendance.map((item) => ({
-        id: `attendance-${item.id}`,
-        type: "attendance",
-        title: `${item.studentName} · ${item.className}`,
-        detail: `${item.status} 처리`,
-        time: formatActivityTime(item.attendanceDate),
+      ...commuteFeed.map((item) => ({
+        id: item.id,
+        type: "commute",
+        title: `${item.studentName} ${item.eventType === "check_in" ? "등원" : "하원"}`,
+        detail: item.attendancePin ? `출석번호 ${item.attendancePin}` : "출석번호 미등록",
+        time: formatActivityTime(item.eventAt),
       })),
       ...recentNotices.map((item) => ({
         id: `notice-${item.id}`,
@@ -595,36 +494,32 @@ export async function getAdminDashboardSnapshot() {
       .sort((left, right) => right.time.localeCompare(left.time))
       .slice(0, 8);
 
-      return {
-        kpis: {
-          totalStudents: activeStudents.length,
+    return {
+      kpis: {
+        totalStudents: activeStudents.length,
         totalClasses: activeClasses.length,
-        todayAttendanceCount: todayAttendance.length,
-        attendanceRate,
+        todayCheckInCount: commuteSummary.todayCheckInCount,
+        todayCheckOutCount: commuteSummary.todayCheckOutCount,
+        onSiteCount: commuteSummary.onSiteCount,
         publishedNotices: activeNotices.length,
         overduePayments: overduePayments.length,
       },
       recentActivities,
-        alerts: {
-          absentCount: attendanceStats.absent || 0,
-          pendingPayments: pendingPayments.length,
-        },
-        studentQueues: {
-          unclassified: studentOpsSummary.savedViews.unclassified,
-          unassignedClass: studentOpsSummary.savedViews.unassignedClass,
-          overdue: studentOpsSummary.savedViews.overdue,
-          attendanceRisk: studentOpsSummary.savedViews.attendanceRisk,
-          followUp: studentOpsSummary.savedViews.followUp,
-          leaving: studentOpsSummary.savedViews.leaving,
-        },
-        syncedAt: new Date(),
-      };
+      alerts: {
+        pendingPayments: pendingPayments.length,
+        pendingCheckoutCount: commuteSummary.pendingCheckoutCount,
+      },
+      studentQueues: {
+        unclassified: studentOpsSummary.savedViews.unclassified,
+        unassignedClass: studentOpsSummary.savedViews.unassignedClass,
+        overdue: studentOpsSummary.savedViews.overdue,
+        pendingCheckout: studentOpsSummary.savedViews.pendingCheckout,
+        followUp: studentOpsSummary.savedViews.followUp,
+        leaving: studentOpsSummary.savedViews.leaving,
+      },
+      syncedAt: new Date(),
+    };
   }
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
 
   const [studentCountRow] = await db
     .select({ count: sql<number>`COUNT(*)` })
@@ -646,52 +541,6 @@ export async function getAdminDashboardSnapshot() {
     .select({ count: sql<number>`COUNT(*)` })
     .from(tuitionPayments)
     .where(eq(tuitionPayments.status, "pending"));
-  const [todayAttendanceRow] = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(attendance)
-    .where(sql`${attendance.attendanceDate} BETWEEN ${todayStart} AND ${todayEnd}`);
-
-  const attendanceStatsRows = await db
-    .select({
-      status: attendance.status,
-      count: sql<number>`COUNT(*)`,
-    })
-    .from(attendance)
-    .groupBy(attendance.status);
-
-  const attendanceStats = attendanceStatsRows.reduce(
-    (acc, row) => {
-      acc[row.status] = Number(row.count) || 0;
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
-
-  const attendanceTotal = Object.values(attendanceStats).reduce((sum, count) => sum + count, 0);
-  const attendanceRate =
-    attendanceTotal > 0
-      ? Math.round(
-          (((attendanceStats.present || 0) +
-            (attendanceStats.late || 0) +
-            (attendanceStats.early_leave || 0)) /
-            attendanceTotal) *
-            100,
-        )
-      : 0;
-
-  const recentAttendance = await db
-    .select({
-      id: attendance.id,
-      studentName: students.name,
-      className: classes.name,
-      status: attendance.status,
-      attendanceDate: attendance.attendanceDate,
-    })
-    .from(attendance)
-    .leftJoin(students, eq(students.id, attendance.studentId))
-    .leftJoin(classes, eq(classes.id, attendance.classId))
-    .orderBy(desc(attendance.attendanceDate))
-    .limit(5);
 
   const recentNotices = await db
     .select({
@@ -706,12 +555,12 @@ export async function getAdminDashboardSnapshot() {
     .limit(5);
 
   const recentActivities = [
-    ...recentAttendance.map((item) => ({
-      id: `attendance-${item.id}`,
-      type: "attendance",
-      title: `${item.studentName || "학생"} · ${item.className || "반"}`,
-      detail: `${item.status} 처리`,
-      time: formatActivityTime(item.attendanceDate),
+    ...commuteFeed.map((item) => ({
+      id: item.id,
+      type: "commute",
+      title: `${item.studentName} ${item.eventType === "check_in" ? "등원" : "하원"}`,
+      detail: item.attendancePin ? `출석번호 ${item.attendancePin}` : "출석번호 미등록",
+      time: formatActivityTime(item.eventAt),
     })),
     ...recentNotices.map((item) => ({
       id: `notice-${item.id}`,
@@ -724,28 +573,29 @@ export async function getAdminDashboardSnapshot() {
     .sort((left, right) => right.time.localeCompare(left.time))
     .slice(0, 8);
 
-    return {
-      kpis: {
-        totalStudents: Number(studentCountRow?.count) || 0,
+  return {
+    kpis: {
+      totalStudents: Number(studentCountRow?.count) || 0,
       totalClasses: Number(classCountRow?.count) || 0,
-      todayAttendanceCount: Number(todayAttendanceRow?.count) || 0,
-      attendanceRate,
+      todayCheckInCount: commuteSummary.todayCheckInCount,
+      todayCheckOutCount: commuteSummary.todayCheckOutCount,
+      onSiteCount: commuteSummary.onSiteCount,
       publishedNotices: Number(noticeCountRow?.count) || 0,
       overduePayments: Number(overdueCountRow?.count) || 0,
     },
     recentActivities,
-      alerts: {
-        absentCount: attendanceStats.absent || 0,
-        pendingPayments: Number(pendingPaymentRow?.count) || 0,
-      },
-      studentQueues: {
-        unclassified: studentOpsSummary.savedViews.unclassified,
-        unassignedClass: studentOpsSummary.savedViews.unassignedClass,
-        overdue: studentOpsSummary.savedViews.overdue,
-        attendanceRisk: studentOpsSummary.savedViews.attendanceRisk,
-        followUp: studentOpsSummary.savedViews.followUp,
-        leaving: studentOpsSummary.savedViews.leaving,
-      },
-      syncedAt: new Date(),
-    };
-  }
+    alerts: {
+      pendingPayments: Number(pendingPaymentRow?.count) || 0,
+      pendingCheckoutCount: commuteSummary.pendingCheckoutCount,
+    },
+    studentQueues: {
+      unclassified: studentOpsSummary.savedViews.unclassified,
+      unassignedClass: studentOpsSummary.savedViews.unassignedClass,
+      overdue: studentOpsSummary.savedViews.overdue,
+      pendingCheckout: studentOpsSummary.savedViews.pendingCheckout,
+      followUp: studentOpsSummary.savedViews.followUp,
+      leaving: studentOpsSummary.savedViews.leaving,
+    },
+    syncedAt: new Date(),
+  };
+}

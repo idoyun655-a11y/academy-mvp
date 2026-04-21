@@ -37,9 +37,6 @@ import {
   updateClassSchedule,
   getStudentEnrollmentIds,
   syncStudentEnrollments,
-  getAttendance,
-  recordAttendance,
-  updateAttendance,
   getNotices,
   getNoticeById,
   createNotice,
@@ -67,6 +64,12 @@ import {
   getTuitionPaymentsByMonth,
   getOverduePayments,
 } from "./db";
+import {
+  ensureAttendancePinAvailable,
+  getTodayCommuteFeed,
+  getTodayCommuteSummary,
+  recordCommuteByPin,
+} from "./commute";
 import {
   getAdminDashboardSnapshot,
   getLinkedPortalSnapshots,
@@ -105,6 +108,10 @@ function extractInsertedId(result: any) {
 const schoolLevelSchema = z.enum(["elementary", "middle", "high", "other"]);
 const lifecycleStatusSchema = z.enum(["active", "on_hold", "leaving", "ended"]);
 const followUpStatusSchema = z.enum(["none", "needs_contact", "scheduled", "done"]);
+const attendancePinSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}$/, "출석번호는 숫자 4자리여야 합니다.");
 const studentOpsSavedViewSchema = z.enum([
   "all",
   "unclassified",
@@ -113,7 +120,7 @@ const studentOpsSavedViewSchema = z.enum([
   "high",
   "unassigned_class",
   "overdue",
-  "attendance_risk",
+  "pending_checkout",
   "follow_up",
   "on_hold",
   "leaving",
@@ -175,6 +182,7 @@ export const appRouter = router({
           name: z.string().min(1),
           phone: z.string().optional(),
           role: z.enum(["student", "parent"]).default("student"),
+          attendancePin: z.string().trim().optional(),
           parentName: z.string().optional(),
           parentPhone: z.string().optional(),
           schoolLevel: schoolLevelSchema.optional(),
@@ -223,11 +231,18 @@ export const appRouter = router({
 
         // role이 student인 경우 students 테이블에도 생성
         if (input.role === 'student') {
+          if (!input.attendancePin) {
+            throw new Error("학생 계정은 출석번호 4자리가 필요합니다.");
+          }
+
+          const attendancePin = await ensureAttendancePinAvailable(input.attendancePin);
+
           await createStudent({
             userId: dbUser.id,
             name: input.name,
             email: input.email,
             phone: input.phone || null,
+            attendancePin,
             parentName: input.parentName || null,
             parentPhone: input.parentPhone || null,
             schoolLevel: input.schoolLevel || "other",
@@ -630,6 +645,7 @@ export const appRouter = router({
           name: z.string().min(1),
           email: z.string().email().optional(),
           phone: z.string().optional(),
+          attendancePin: attendancePinSchema,
           parentPhone: z.string().optional(),
           parentName: z.string().optional(),
           dateOfBirth: z.string().optional(),
@@ -643,6 +659,7 @@ export const appRouter = router({
           name: input.name,
           email: input.email || null,
           phone: input.phone || null,
+          attendancePin: input.attendancePin,
           parentPhone: input.parentPhone || null,
           parentName: input.parentName || null,
           dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
@@ -661,6 +678,7 @@ export const appRouter = router({
           name: z.string().optional(),
           email: z.string().email().optional(),
           phone: z.string().optional(),
+          attendancePin: attendancePinSchema.nullish(),
           parentPhone: z.string().optional(),
           parentName: z.string().optional(),
           schoolLevel: schoolLevelSchema.optional(),
@@ -677,6 +695,10 @@ export const appRouter = router({
         const { id, ...updateData } = input;
         const result = await updateStudent(id, {
           ...updateData,
+          attendancePin:
+            updateData.attendancePin === undefined
+              ? undefined
+              : updateData.attendancePin || null,
           followUpDueDate:
             updateData.followUpDueDate === undefined
               ? undefined
@@ -857,100 +879,23 @@ export const appRouter = router({
       }),
   }),
 
-  // ============ Attendance Management ============
-  attendance: router({
-    list: publicProcedure
+  commute: router({
+    todayFeed: adminProcedure.query(async () => {
+      return getTodayCommuteFeed();
+    }),
+
+    todaySummary: adminProcedure.query(async () => {
+      return getTodayCommuteSummary();
+    }),
+
+    recordByPin: adminProcedure
       .input(
         z.object({
-          classId: z.number().optional(),
-          date: z.string(),
-          limit: z.number().default(50),
-          offset: z.number().default(0),
-        })
-      )
-      .query(async ({ input }) => {
-        if (!input.classId) {
-          return { data: [], total: 0 };
-        }
-        const date = new Date(input.date);
-        const result = await getAttendance(
-          input.classId,
-          date,
-          input.limit,
-          input.offset
-        );
-        return result;
-      }),
-
-    record: adminProcedure
-      .input(
-        z.object({
-          studentId: z.number(),
-          classId: z.number(),
-          attendanceDate: z.string(),
-          status: z.enum(["present", "late", "absent", "early_leave"]),
-          notes: z.string().optional(),
-        })
-      )
-      .mutation(async ({ input, ctx }) => {
-        const result = await recordAttendance({
-          studentId: input.studentId,
-          classId: input.classId,
-          attendanceDate: new Date(input.attendanceDate),
-          status: input.status,
-          notes: input.notes || null,
-          recordedBy: ctx.user?.id || null,
-        });
-        console.log("[API] Recorded attendance:", result);
-        return result;
-      }),
-
-    bulkRecord: adminProcedure
-      .input(
-        z.object({
-          studentIds: z.array(z.number().int().positive()).min(1),
-          classId: z.number().int().positive(),
-          attendanceDate: z.string(),
-          status: z.enum(["present", "late", "absent", "early_leave"]),
-          notes: z.string().optional(),
-        })
-      )
-      .mutation(async ({ input, ctx }) => {
-        const uniqueStudentIds = Array.from(new Set(input.studentIds));
-
-        for (const studentId of uniqueStudentIds) {
-          await recordAttendance({
-            studentId,
-            classId: input.classId,
-            attendanceDate: new Date(input.attendanceDate),
-            status: input.status,
-            notes: input.notes || null,
-            recordedBy: ctx.user?.id || null,
-          });
-        }
-
-        return {
-          success: true,
-          updatedCount: uniqueStudentIds.length,
-        };
-      }),
-
-    update: adminProcedure
-      .input(
-        z.object({
-          id: z.number(),
-          status: z.enum(["present", "late", "absent", "early_leave"]),
-          notes: z.string().optional(),
-        })
+          attendancePin: attendancePinSchema,
+        }),
       )
       .mutation(async ({ input }) => {
-        const result = await updateAttendance(input.id, {
-          status: input.status,
-          notes: input.notes || null,
-          updatedAt: new Date(),
-        });
-        console.log("[API] Updated attendance:", result);
-        return result;
+        return recordCommuteByPin(input.attendancePin);
       }),
   }),
 

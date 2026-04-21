@@ -19,28 +19,24 @@ export const STUDENT_NAV_ITEMS = [
 
 export const PARENT_NAV_ITEMS = [{ href: "/parent", label: "부모 페이지" }];
 
-export const ATTENDANCE_META = {
-  present: {
-    label: "출석",
+export const COMMUTE_STATUS_META = {
+  not_arrived: {
+    label: "기록 없음",
+    color: theme.colors.text.tertiary,
+  },
+  checked_in: {
+    label: "등원",
     color: theme.colors.status.success,
   },
-  late: {
-    label: "지각",
-    color: theme.colors.status.warning,
-  },
-  absent: {
-    label: "결석",
-    color: theme.colors.status.error,
-  },
-  early_leave: {
-    label: "조퇴",
-    color: "#ef4444",
+  checked_out: {
+    label: "하원",
+    color: theme.colors.status.info,
   },
 } as const;
 
-export function getAttendanceMeta(status: string) {
+export function getCommuteStatusMeta(status: string) {
   return (
-    ATTENDANCE_META[status as keyof typeof ATTENDANCE_META] ?? {
+    COMMUTE_STATUS_META[status as keyof typeof COMMUTE_STATUS_META] ?? {
       label: status,
       color: theme.colors.text.tertiary,
     }
@@ -50,6 +46,14 @@ export function getAttendanceMeta(status: string) {
 export function formatDate(value?: string | Date | null) {
   if (!value) return "-";
   return new Date(value).toLocaleDateString("ko-KR");
+}
+
+export function formatTime(value?: string | Date | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function formatDateTime(value?: string | Date | null) {

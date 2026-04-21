@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Badge, Card, EmptyState, SearchBar } from "@/components/common/CommonComponents";
+import { Badge, Card, EmptyState } from "@/components/common/CommonComponents";
 import Button from "@/components/common/Button";
 import { formatDate } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
@@ -18,7 +18,7 @@ type SavedView =
   | "high"
   | "unassigned_class"
   | "overdue"
-  | "attendance_risk"
+  | "pending_checkout"
   | "follow_up"
   | "on_hold"
   | "leaving";
@@ -31,16 +31,19 @@ type SummaryCountKey =
   | "high"
   | "unassignedClass"
   | "overdue"
-  | "attendanceRisk"
+  | "pendingCheckout"
   | "followUp"
   | "onHold"
   | "leaving";
+
+type CommuteStatus = "not_arrived" | "checked_in" | "checked_out";
 
 type StudentRow = {
   id: number;
   name: string;
   email?: string | null;
   phone?: string | null;
+  attendancePin?: string | null;
   parentName?: string | null;
   parentPhone?: string | null;
   schoolLevel?: SchoolLevel | null;
@@ -55,9 +58,10 @@ type StudentRow = {
   activeClassCount?: number;
   activeClassNames?: string[];
   hasOverduePayment?: boolean;
-  attendanceRisk?: boolean;
   followUpRequired?: boolean;
-  lastAttendanceAt?: string | Date | null;
+  commuteStatus?: CommuteStatus;
+  lastCheckInAt?: string | Date | null;
+  lastCheckOutAt?: string | Date | null;
   lastPaymentStatus?: string | null;
   updatedAt?: string | Date | null;
 };
@@ -73,6 +77,7 @@ type StudentForm = {
   password: string;
   passwordConfirm: string;
   phone: string;
+  attendancePin: string;
   parentName: string;
   parentPhone: string;
   schoolLevel: SchoolLevel;
@@ -109,31 +114,31 @@ const SAVED_VIEW_ITEMS: Array<{
   countKey: SummaryCountKey;
 }> = [
   { id: "all", label: "전체", description: "현재 등록된 전체 학생", countKey: "all" },
-  { id: "unclassified", label: "미분류", description: "학교급 또는 학년 미입력", countKey: "unclassified" },
-  { id: "elementary", label: "초등", description: "초등 학생 운영 보기", countKey: "elementary" },
-  { id: "middle", label: "중등", description: "중등 학생 운영 보기", countKey: "middle" },
-  { id: "high", label: "고등", description: "고등 학생 운영 보기", countKey: "high" },
+  { id: "unclassified", label: "미분류", description: "학교급 또는 학년 미지정", countKey: "unclassified" },
+  { id: "elementary", label: "초등", description: "초등 학생 보기", countKey: "elementary" },
+  { id: "middle", label: "중등", description: "중등 학생 보기", countKey: "middle" },
+  { id: "high", label: "고등", description: "고등 학생 보기", countKey: "high" },
   {
     id: "unassigned_class",
     label: "반 미배정",
-    description: "활성 반이 없는 학생",
+    description: "활성 수강 반이 없는 학생",
     countKey: "unassignedClass",
   },
-  { id: "overdue", label: "미납", description: "납부 확인이 필요한 학생", countKey: "overdue" },
+  { id: "overdue", label: "미납", description: "수납 확인이 필요한 학생", countKey: "overdue" },
   {
-    id: "attendance_risk",
-    label: "출결 위험",
-    description: "최근 30일 결석·지각 위험군",
-    countKey: "attendanceRisk",
+    id: "pending_checkout",
+    label: "미하원",
+    description: "오늘 등원했고 아직 하원하지 않은 학생",
+    countKey: "pendingCheckout",
   },
   {
     id: "follow_up",
     label: "상담 필요",
-    description: "연락 또는 상담 일정 필요",
+    description: "연락 또는 상담 일정이 필요한 학생",
     countKey: "followUp",
   },
   { id: "on_hold", label: "휴원", description: "휴원 상태 학생", countKey: "onHold" },
-  { id: "leaving", label: "퇴원예정", description: "퇴원 상담 진행 중", countKey: "leaving" },
+  { id: "leaving", label: "퇴원예정", description: "퇴원 상담 진행 중인 학생", countKey: "leaving" },
 ];
 
 const SCHOOL_LEVEL_OPTIONS: Array<{ value: SchoolLevel; label: string }> = [
@@ -163,6 +168,7 @@ const INITIAL_FORM: StudentForm = {
   password: "",
   passwordConfirm: "",
   phone: "",
+  attendancePin: "",
   parentName: "",
   parentPhone: "",
   schoolLevel: "other",
@@ -271,6 +277,12 @@ function getPaymentBadgeVariant(status?: string | null) {
   return "default";
 }
 
+function getCommuteBadge(status?: CommuteStatus | null) {
+  if (status === "checked_in") return { label: "원내", variant: "warning" as const };
+  if (status === "checked_out") return { label: "하원", variant: "info" as const };
+  return { label: "미등원", variant: "default" as const };
+}
+
 function fieldStyle() {
   return {
     backgroundColor: theme.colors.background.secondary,
@@ -298,6 +310,7 @@ function toStudentForm(student: StudentRow): StudentForm {
     password: "",
     passwordConfirm: "",
     phone: student.phone ?? "",
+    attendancePin: student.attendancePin ?? "",
     parentName: student.parentName ?? "",
     parentPhone: student.parentPhone ?? "",
     schoolLevel: student.schoolLevel ?? "other",
@@ -347,10 +360,7 @@ export default function AdminStudents() {
   );
 
   const { data: summaryData } = trpc.studentOps.summary.useQuery(undefined, CONSOLE_QUERY_OPTIONS);
-  const { data: studentListData, isLoading } = trpc.studentOps.list.useQuery(
-    listInput,
-    CONSOLE_QUERY_OPTIONS,
-  );
+  const { data: studentListData, isLoading } = trpc.studentOps.list.useQuery(listInput, CONSOLE_QUERY_OPTIONS);
   const { data: classListData } = trpc.classes.list.useQuery(
     { limit: 300, offset: 0 },
     CONSOLE_QUERY_OPTIONS,
@@ -480,6 +490,7 @@ export default function AdminStudents() {
       name: createForm.name,
       phone: createForm.phone || undefined,
       role: "student",
+      attendancePin: createForm.attendancePin,
       parentName: createForm.parentName || undefined,
       parentPhone: createForm.parentPhone || undefined,
       schoolLevel: createForm.schoolLevel,
@@ -501,6 +512,7 @@ export default function AdminStudents() {
         id: selectedStudentId,
         name: detailForm.name,
         phone: detailForm.phone || undefined,
+        attendancePin: detailForm.attendancePin || null,
         parentName: detailForm.parentName || undefined,
         parentPhone: detailForm.parentPhone || undefined,
         schoolLevel: detailForm.schoolLevel,
@@ -564,7 +576,7 @@ export default function AdminStudents() {
               학생 운영 콘솔
             </h1>
             <p className="text-base" style={textMutedStyle()}>
-              400명 이상 학생을 학년, 반, 운영 상태 기준으로 빠르게 분류하고 한 번에 처리합니다.
+              학년, 반, 미납, 미하원, 상담 필요 상태를 기준으로 학생을 빠르게 분류하고 처리합니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -572,10 +584,10 @@ export default function AdminStudents() {
               전체 {summaryData?.savedViews?.all ?? 0}명
             </Badge>
             <Badge variant="warning" size="sm">
-              미납 {summaryData?.savedViews?.overdue ?? 0}명
+              미하원 {summaryData?.savedViews?.pendingCheckout ?? 0}명
             </Badge>
             <Badge variant="error" size="sm">
-              출결 위험 {summaryData?.savedViews?.attendanceRisk ?? 0}명
+              미납 {summaryData?.savedViews?.overdue ?? 0}명
             </Badge>
             <Button
               size="lg"
@@ -591,47 +603,232 @@ export default function AdminStudents() {
 
         {selectedIds.length > 0 ? (
           <Card variant="elevated" padding="lg">
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-lg font-semibold" style={sectionTitleStyle()}>
-                    {selectedIds.length}명 선택됨
-                  </p>
-                  <p className="text-sm" style={textMutedStyle()}>
-                    상태, 학년, 반 배정, 상담 상태를 일괄로 변경할 수 있습니다.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => setSelectedIds([])}>
-                    선택 해제
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      window.location.href = `/admin/notifications?studentIds=${selectedIds.join(",")}`;
-                    }}
-                  >
-                    메시지 보내기
-                  </Button>
-                  <Button onClick={handleApplyBulk} isLoading={bulkUpdateMutation.isPending}>
-                    일괄 적용
-                  </Button>
-                </div>
-              </div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px]">
+              <select
+                value={bulkForm.lifecycleStatus}
+                onChange={(event) =>
+                  setBulkForm((current) => ({
+                    ...current,
+                    lifecycleStatus: event.target.value as "" | LifecycleStatus,
+                  }))
+                }
+                className="rounded-lg px-3 py-3"
+                style={fieldStyle()}
+              >
+                <option value="">학생 상태 일괄 변경</option>
+                {LIFECYCLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
 
+              <select
+                value={bulkForm.schoolLevel}
+                onChange={(event) =>
+                  setBulkForm((current) => ({
+                    ...current,
+                    schoolLevel: event.target.value as "" | SchoolLevel,
+                  }))
+                }
+                className="rounded-lg px-3 py-3"
+                style={fieldStyle()}
+              >
+                <option value="">학교급 일괄 지정</option>
+                {SCHOOL_LEVEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <Button onClick={handleApplyBulk} isLoading={bulkUpdateMutation.isPending}>
+                {selectedIds.length}명 적용
+              </Button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <input
+                value={bulkForm.gradeLevel}
+                onChange={(event) =>
+                  setBulkForm((current) => ({ ...current, gradeLevel: event.target.value }))
+                }
+                type="number"
+                min="1"
+                max="12"
+                placeholder="학년 일괄 지정"
+                className="rounded-lg px-3 py-3"
+                style={fieldStyle()}
+              />
+              <select
+                value={bulkForm.followUpStatus}
+                onChange={(event) =>
+                  setBulkForm((current) => ({
+                    ...current,
+                    followUpStatus: event.target.value as "" | FollowUpStatus,
+                  }))
+                }
+                className="rounded-lg px-3 py-3"
+                style={fieldStyle()}
+              >
+                <option value="">상담 상태 일괄 지정</option>
+                {FOLLOW_UP_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={bulkForm.followUpDueDate}
+                onChange={(event) =>
+                  setBulkForm((current) => ({
+                    ...current,
+                    followUpDueDate: event.target.value,
+                  }))
+                }
+                className="rounded-lg px-3 py-3"
+                style={fieldStyle()}
+              />
+              <select
+                value={bulkForm.classSyncMode}
+                onChange={(event) =>
+                  setBulkForm((current) => ({
+                    ...current,
+                    classSyncMode: event.target.value as BulkForm["classSyncMode"],
+                  }))
+                }
+                className="rounded-lg px-3 py-3"
+                style={fieldStyle()}
+              >
+                <option value="replace">반 완전 교체</option>
+                <option value="add">반 추가</option>
+                <option value="remove">반 제거</option>
+              </select>
+            </div>
+
+            <div
+              className="mt-4 grid max-h-44 grid-cols-1 gap-2 overflow-y-auto rounded-lg p-3 md:grid-cols-2 xl:grid-cols-3"
+              style={fieldStyle()}
+            >
+              {classes.map((classItem) => (
+                <label key={classItem.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={bulkForm.classIds.includes(classItem.id)}
+                    onChange={(event) =>
+                      setBulkForm((current) => ({
+                        ...current,
+                        classIds: event.target.checked
+                          ? [...current.classIds, classItem.id]
+                          : current.classIds.filter((item) => item !== classItem.id),
+                      }))
+                    }
+                  />
+                  <span style={sectionTitleStyle()}>{classItem.name}</span>
+                </label>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
+          <Card variant="elevated" padding="lg" className="space-y-3">
+            <h2 className="text-lg font-semibold" style={sectionTitleStyle()}>
+              저장 보기
+            </h2>
+            {SAVED_VIEW_ITEMS.map((item) => {
+              const count = Number((summaryData?.savedViews as Record<string, number> | undefined)?.[item.countKey] ?? 0);
+              const active = savedView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSavedView(item.id)}
+                  className="w-full rounded-2xl border p-4 text-left transition-colors"
+                  style={{
+                    borderColor: active ? theme.colors.accent.primary : theme.colors.border.primary,
+                    backgroundColor: active
+                      ? `${theme.colors.accent.primary}14`
+                      : theme.colors.background.secondary,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold" style={sectionTitleStyle()}>
+                        {item.label}
+                      </p>
+                      <p className="mt-1 text-sm" style={textMutedStyle()}>
+                        {item.description}
+                      </p>
+                    </div>
+                    <Badge variant={active ? "info" : "default"} size="sm">
+                      {count}
+                    </Badge>
+                  </div>
+                </button>
+              );
+            })}
+          </Card>
+
+          <Card variant="elevated" padding="lg">
+            <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="이름, 전화번호, 출석번호 검색"
+                  className="rounded-lg px-3 py-3 xl:col-span-2"
+                  style={fieldStyle()}
+                />
                 <select
-                  value={bulkForm.lifecycleStatus}
-                  onChange={(event) =>
-                    setBulkForm((current) => ({
-                      ...current,
-                      lifecycleStatus: event.target.value as BulkForm["lifecycleStatus"],
-                    }))
-                  }
+                  value={schoolLevelFilter}
+                  onChange={(event) => setSchoolLevelFilter(event.target.value as "" | SchoolLevel)}
                   className="rounded-lg px-3 py-3"
                   style={fieldStyle()}
                 >
-                  <option value="">학생 상태 변경 안 함</option>
+                  <option value="">학교급 전체</option>
+                  {SCHOOL_LEVEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={gradeLevelFilter}
+                  onChange={(event) => setGradeLevelFilter(event.target.value)}
+                  type="number"
+                  min="1"
+                  max="12"
+                  placeholder="학년"
+                  className="rounded-lg px-3 py-3"
+                  style={fieldStyle()}
+                />
+                <select
+                  value={classFilter}
+                  onChange={(event) => setClassFilter(event.target.value)}
+                  className="rounded-lg px-3 py-3"
+                  style={fieldStyle()}
+                >
+                  <option value="">반 전체</option>
+                  {classes.map((classItem) => (
+                    <option key={classItem.id} value={classItem.id}>
+                      {classItem.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <select
+                  value={lifecycleFilter}
+                  onChange={(event) =>
+                    setLifecycleFilter(event.target.value as "" | LifecycleStatus)
+                  }
+                  className="rounded-lg px-3 py-3 md:w-64"
+                  style={fieldStyle()}
+                >
+                  <option value="">학생 상태 전체</option>
                   {LIFECYCLE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -639,195 +836,239 @@ export default function AdminStudents() {
                   ))}
                 </select>
 
-                <select
-                  value={bulkForm.schoolLevel}
-                  onChange={(event) =>
-                    setBulkForm((current) => ({
-                      ...current,
-                      schoolLevel: event.target.value as BulkForm["schoolLevel"],
-                    }))
-                  }
-                  className="rounded-lg px-3 py-3"
-                  style={fieldStyle()}
-                >
-                  <option value="">학교급 변경 안 함</option>
-                  {SCHOOL_LEVEL_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  value={bulkForm.gradeLevel}
-                  onChange={(event) =>
-                    setBulkForm((current) => ({ ...current, gradeLevel: event.target.value }))
-                  }
-                  type="number"
-                  min="1"
-                  max="12"
-                  placeholder="학년 지정"
-                  className="rounded-lg px-3 py-3"
-                  style={fieldStyle()}
-                />
-
-                <select
-                  value={bulkForm.followUpStatus}
-                  onChange={(event) =>
-                    setBulkForm((current) => ({
-                      ...current,
-                      followUpStatus: event.target.value as BulkForm["followUpStatus"],
-                    }))
-                  }
-                  className="rounded-lg px-3 py-3"
-                  style={fieldStyle()}
-                >
-                  <option value="">상담 상태 변경 안 함</option>
-                  {FOLLOW_UP_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  type="date"
-                  value={bulkForm.followUpDueDate}
-                  onChange={(event) =>
-                    setBulkForm((current) => ({
-                      ...current,
-                      followUpDueDate: event.target.value,
-                    }))
-                  }
-                  className="rounded-lg px-3 py-3"
-                  style={fieldStyle()}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[220px_1fr]">
-                <select
-                  value={bulkForm.classSyncMode}
-                  onChange={(event) =>
-                    setBulkForm((current) => ({
-                      ...current,
-                      classSyncMode: event.target.value as BulkForm["classSyncMode"],
-                    }))
-                  }
-                  className="rounded-lg px-3 py-3"
-                  style={fieldStyle()}
-                >
-                  <option value="replace">선택한 반으로 덮어쓰기</option>
-                  <option value="add">선택한 반 추가</option>
-                  <option value="remove">선택한 반 제거</option>
-                </select>
-
-                <div
-                  className="grid max-h-40 grid-cols-1 gap-2 overflow-y-auto rounded-lg p-3 md:grid-cols-3"
-                  style={fieldStyle()}
-                >
-                  {classes.map((classItem) => {
-                    const checked = bulkForm.classIds.includes(classItem.id);
-                    return (
-                      <label key={classItem.id} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(event) =>
-                            setBulkForm((current) => ({
-                              ...current,
-                              classIds: event.target.checked
-                                ? [...current.classIds, classItem.id]
-                                : current.classIds.filter((item) => item !== classItem.id),
-                            }))
-                          }
-                        />
-                        <span style={sectionTitleStyle()}>{classItem.name}</span>
-                      </label>
-                    );
-                  })}
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" onClick={handleToggleVisibleSelection}>
+                    {allVisibleSelected ? "현재 페이지 선택 해제" : "현재 페이지 전체 선택"}
+                  </Button>
+                  <Badge variant="info" size="sm">
+                    선택 {selectedIds.length}명
+                  </Badge>
                 </div>
               </div>
+
+              {isLoading ? (
+                <p style={textMutedStyle()}>학생 목록을 불러오는 중입니다.</p>
+              ) : students.length === 0 ? (
+                <EmptyState title="조건에 맞는 학생이 없습니다." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr style={textMutedStyle()}>
+                        <th className="px-3 py-3 text-left">
+                          <input
+                            type="checkbox"
+                            checked={allVisibleSelected}
+                            onChange={handleToggleVisibleSelection}
+                          />
+                        </th>
+                        <th className="px-3 py-3 text-left">이름</th>
+                        <th className="px-3 py-3 text-left">학년</th>
+                        <th className="px-3 py-3 text-left">반</th>
+                        <th className="px-3 py-3 text-left">학생 상태</th>
+                        <th className="px-3 py-3 text-left">수납</th>
+                        <th className="px-3 py-3 text-left">등하원</th>
+                        <th className="px-3 py-3 text-left">상담</th>
+                        <th className="px-3 py-3 text-left">보호자 연락처</th>
+                        <th className="px-3 py-3 text-left">최근 수정</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {students.map((student) => {
+                        const commute = getCommuteBadge(student.commuteStatus);
+                        return (
+                          <tr
+                            key={student.id}
+                            className="cursor-pointer border-t"
+                            onClick={() => setSelectedStudentId(student.id)}
+                            style={{
+                              borderColor: theme.colors.border.secondary,
+                              backgroundColor:
+                                selectedStudentId === student.id
+                                  ? `${theme.colors.accent.primary}12`
+                                  : "transparent",
+                            }}
+                          >
+                            <td className="px-3 py-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(student.id)}
+                                onChange={(event) => {
+                                  event.stopPropagation();
+                                  handleToggleStudentSelection(student.id);
+                                }}
+                              />
+                            </td>
+                            <td className="px-3 py-3">
+                              <div>
+                                <p className="font-semibold" style={sectionTitleStyle()}>
+                                  {student.name}
+                                </p>
+                                <p className="text-xs" style={textMutedStyle()}>
+                                  {student.attendancePin ? `출석번호 ${student.attendancePin}` : student.email || student.phone || "-"}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3" style={sectionTitleStyle()}>
+                              {getGradeLabel(student)}
+                            </td>
+                            <td className="px-3 py-3" style={sectionTitleStyle()}>
+                              <div className="space-y-1">
+                                <p>{student.activeClassCount ?? 0}개 반</p>
+                                <p className="text-xs" style={textMutedStyle()}>
+                                  {student.activeClassNames?.join(", ") || "반 미배정"}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <Badge variant={getLifecycleBadgeVariant(student.lifecycleStatus)} size="sm">
+                                {getLifecycleLabel(student.lifecycleStatus)}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-3">
+                              <Badge variant={getPaymentBadgeVariant(student.lastPaymentStatus)} size="sm">
+                                {student.hasOverduePayment ? "미납" : getPaymentLabel(student.lastPaymentStatus)}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-3">
+                              <Badge variant={commute.variant} size="sm">
+                                {commute.label}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-3">
+                              <Badge variant={getFollowUpBadgeVariant(student.followUpStatus)} size="sm">
+                                {getFollowUpLabel(student.followUpStatus)}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-3" style={sectionTitleStyle()}>
+                              {student.parentPhone || "-"}
+                            </td>
+                            <td className="px-3 py-3" style={textMutedStyle()}>
+                              {formatDate(student.updatedAt)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {total > PAGE_SIZE ? (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm" style={textMutedStyle()}>
+                    페이지 {page + 1} / {pageCount}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      disabled={page === 0}
+                      onClick={() => setPage((current) => Math.max(0, current - 1))}
+                    >
+                      이전
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={page >= pageCount - 1}
+                      onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+                    >
+                      다음
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </Card>
-        ) : null}
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-          <div className="xl:col-span-3">
-            <Card variant="elevated" padding="lg" className="space-y-3">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold" style={sectionTitleStyle()}>
-                  저장된 운영 보기
-                </h2>
-                <p className="text-sm" style={textMutedStyle()}>
-                  우선순위별 학생 집합을 즉시 전환합니다.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                {SAVED_VIEW_ITEMS.map((item) => {
-                  const active = savedView === item.id;
-                  const count = summaryData?.savedViews?.[item.countKey] ?? 0;
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSavedView(item.id)}
-                      className="w-full rounded-xl border p-4 text-left transition-all"
-                      style={{
-                        backgroundColor: active
-                          ? theme.colors.background.secondary
-                          : theme.colors.background.tertiary,
-                        borderColor: active
-                          ? theme.colors.accent.primary
-                          : theme.colors.border.primary,
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold" style={sectionTitleStyle()}>
-                            {item.label}
-                          </p>
-                          <p className="mt-1 text-xs" style={textMutedStyle()}>
-                            {item.description}
-                          </p>
-                        </div>
-                        <Badge variant={active ? "info" : "default"} size="sm">
-                          {count}
-                        </Badge>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </Card>
-          </div>
-
-          <div className="space-y-6 xl:col-span-5">
-            <Card variant="elevated" padding="lg">
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                  <div className="xl:col-span-2">
-                    <SearchBar value={search} onSearch={setSearch} placeholder="이름, 연락처, 반명 검색" />
+          <Card variant="elevated" padding="lg">
+            {!selectedStudent ? (
+              <EmptyState title="학생을 선택하세요." description="기본 정보 수정과 반 배정을 오른쪽 패널에서 처리합니다." />
+            ) : (
+              <div className="space-y-5">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <h2 className="text-2xl font-bold" style={sectionTitleStyle()}>
+                      {selectedStudent.name}
+                    </h2>
+                    <p className="text-sm" style={textMutedStyle()}>
+                      {selectedStudent.email || "이메일 없음"}
+                    </p>
                   </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={getLifecycleBadgeVariant(selectedStudent.lifecycleStatus)} size="sm">
+                      {getLifecycleLabel(selectedStudent.lifecycleStatus)}
+                    </Badge>
+                    <Badge variant={getCommuteBadge(selectedStudent.commuteStatus).variant} size="sm">
+                      {getCommuteBadge(selectedStudent.commuteStatus).label}
+                    </Badge>
+                    <Badge variant={getPaymentBadgeVariant(selectedStudent.lastPaymentStatus)} size="sm">
+                      수납 {selectedStudent.hasOverduePayment ? "미납" : getPaymentLabel(selectedStudent.lastPaymentStatus)}
+                    </Badge>
+                  </div>
+                </div>
 
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <input
+                    value={detailForm.name}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="학생 이름"
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
+                    value={detailForm.phone}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, phone: event.target.value }))}
+                    placeholder="학생 연락처"
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
+                    value={detailForm.attendancePin}
+                    onChange={(event) =>
+                      setDetailForm((current) => ({
+                        ...current,
+                        attendancePin: event.target.value.replace(/\D/g, "").slice(0, 4),
+                      }))
+                    }
+                    inputMode="numeric"
+                    placeholder="출석번호 4자리"
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
+                    value={detailForm.parentName}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, parentName: event.target.value }))}
+                    placeholder="보호자 이름"
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
+                    value={detailForm.parentPhone}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, parentPhone: event.target.value }))}
+                    placeholder="보호자 연락처"
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
                   <select
-                    value={schoolLevelFilter}
-                    onChange={(event) => setSchoolLevelFilter(event.target.value as "" | SchoolLevel)}
+                    value={detailForm.schoolLevel}
+                    onChange={(event) =>
+                      setDetailForm((current) => ({
+                        ...current,
+                        schoolLevel: event.target.value as SchoolLevel,
+                      }))
+                    }
                     className="rounded-lg px-3 py-3"
                     style={fieldStyle()}
                   >
-                    <option value="">학교급 전체</option>
                     {SCHOOL_LEVEL_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
-
                   <input
-                    value={gradeLevelFilter}
-                    onChange={(event) => setGradeLevelFilter(event.target.value)}
+                    value={detailForm.gradeLevel}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, gradeLevel: event.target.value }))}
                     type="number"
                     min="1"
                     max="12"
@@ -835,459 +1076,145 @@ export default function AdminStudents() {
                     className="rounded-lg px-3 py-3"
                     style={fieldStyle()}
                   />
-
                   <select
-                    value={classFilter}
-                    onChange={(event) => setClassFilter(event.target.value)}
-                    className="rounded-lg px-3 py-3"
-                    style={fieldStyle()}
-                  >
-                    <option value="">반 전체</option>
-                    {classes.map((classItem) => (
-                      <option key={classItem.id} value={classItem.id}>
-                        {classItem.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
-                  <select
-                    value={lifecycleFilter}
+                    value={detailForm.lifecycleStatus}
                     onChange={(event) =>
-                      setLifecycleFilter(event.target.value as "" | LifecycleStatus)
+                      setDetailForm((current) => ({
+                        ...current,
+                        lifecycleStatus: event.target.value as LifecycleStatus,
+                      }))
                     }
                     className="rounded-lg px-3 py-3"
                     style={fieldStyle()}
                   >
-                    <option value="">학생 상태 전체</option>
                     {LIFECYCLE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
+                  <select
+                    value={detailForm.followUpStatus}
+                    onChange={(event) =>
+                      setDetailForm((current) => ({
+                        ...current,
+                        followUpStatus: event.target.value as FollowUpStatus,
+                      }))
+                    }
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  >
+                    {FOLLOW_UP_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={detailForm.followUpDueDate}
+                    onChange={(event) =>
+                      setDetailForm((current) => ({ ...current, followUpDueDate: event.target.value }))
+                    }
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
+                    type="date"
+                    value={detailForm.dateOfBirth}
+                    onChange={(event) =>
+                      setDetailForm((current) => ({ ...current, dateOfBirth: event.target.value }))
+                    }
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
+                    value={detailForm.address}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, address: event.target.value }))}
+                    placeholder="주소"
+                    className="rounded-lg px-3 py-3 md:col-span-2"
+                    style={fieldStyle()}
+                  />
+                  <textarea
+                    value={detailForm.notes}
+                    onChange={(event) => setDetailForm((current) => ({ ...current, notes: event.target.value }))}
+                    placeholder="메모"
+                    className="min-h-32 rounded-lg px-3 py-3 md:col-span-2"
+                    style={fieldStyle()}
+                  />
+                </div>
 
-                  <div className="flex items-center justify-between rounded-lg px-3 py-3" style={fieldStyle()}>
-                    <span className="text-sm" style={textMutedStyle()}>
-                      현재 결과
-                    </span>
-                    <span className="font-semibold" style={sectionTitleStyle()}>
-                      {total.toLocaleString("ko-KR")}명
-                    </span>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold" style={sectionTitleStyle()}>
+                      반 배정
+                    </p>
+                    <p className="text-xs" style={textMutedStyle()}>
+                      현재 {detailClassIds.length}개 반
+                    </p>
                   </div>
+                  <div
+                    className="grid max-h-52 grid-cols-1 gap-2 overflow-y-auto rounded-lg p-3 md:grid-cols-2"
+                    style={fieldStyle()}
+                  >
+                    {classes.map((classItem) => {
+                      const checked = detailClassIds.includes(classItem.id);
+                      return (
+                        <label key={classItem.id} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) =>
+                              setDetailClassIds((current) =>
+                                event.target.checked
+                                  ? [...current, classItem.id]
+                                  : current.filter((item) => item !== classItem.id),
+                              )
+                            }
+                          />
+                          <span style={sectionTitleStyle()}>{classItem.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  className="grid grid-cols-2 gap-3 rounded-lg p-4"
+                  style={{ backgroundColor: theme.colors.background.secondary }}
+                >
+                  <div>
+                    <p className="text-xs" style={textMutedStyle()}>
+                      최근 등원
+                    </p>
+                    <p className="mt-1 font-semibold" style={sectionTitleStyle()}>
+                      {formatDate(selectedStudent.lastCheckInAt)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs" style={textMutedStyle()}>
+                      최근 하원
+                    </p>
+                    <p className="mt-1 font-semibold" style={sectionTitleStyle()}>
+                      {formatDate(selectedStudent.lastCheckOutAt)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-between gap-2">
+                  <Button variant="danger" onClick={handleDeleteStudent} isLoading={deleteStudentMutation.isPending}>
+                    학생 삭제
+                  </Button>
+                  <Button
+                    onClick={handleSaveDetail}
+                    isLoading={updateStudentMutation.isPending || syncEnrollmentsMutation.isPending}
+                  >
+                    상세 저장
+                  </Button>
                 </div>
               </div>
-            </Card>
-
-            <Card variant="elevated" padding="lg">
-              {isLoading ? (
-                <p style={textMutedStyle()}>학생 목록을 불러오는 중입니다.</p>
-              ) : students.length === 0 ? (
-                <EmptyState
-                  title="조건에 맞는 학생이 없습니다."
-                  description="필터를 조정하거나 저장된 보기를 바꿔 보세요."
-                />
-              ) : (
-                <>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr style={{ color: theme.colors.text.tertiary }}>
-                          <th className="px-3 py-3 text-left">
-                            <input
-                              type="checkbox"
-                              checked={allVisibleSelected}
-                              onChange={handleToggleVisibleSelection}
-                            />
-                          </th>
-                          <th className="px-3 py-3 text-left">이름</th>
-                          <th className="px-3 py-3 text-left">학년</th>
-                          <th className="px-3 py-3 text-left">활성 반</th>
-                          <th className="px-3 py-3 text-left">학생 상태</th>
-                          <th className="px-3 py-3 text-left">수납</th>
-                          <th className="px-3 py-3 text-left">출결</th>
-                          <th className="px-3 py-3 text-left">상담</th>
-                          <th className="px-3 py-3 text-left">보호자 연락처</th>
-                          <th className="px-3 py-3 text-left">최근 수정</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {students.map((student) => {
-                          const isSelected = selectedIds.includes(student.id);
-                          const isActiveRow = selectedStudentId === student.id;
-
-                          return (
-                            <tr
-                              key={student.id}
-                              onClick={() => setSelectedStudentId(student.id)}
-                              className="cursor-pointer border-t transition-colors"
-                              style={{
-                                borderColor: theme.colors.border.secondary,
-                                backgroundColor: isActiveRow
-                                  ? theme.colors.background.secondary
-                                  : "transparent",
-                              }}
-                            >
-                              <td className="px-3 py-3" onClick={(event) => event.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleStudentSelection(student.id)}
-                                />
-                              </td>
-                              <td className="px-3 py-3">
-                                <div>
-                                  <p className="font-semibold" style={sectionTitleStyle()}>
-                                    {student.name}
-                                  </p>
-                                  <p className="text-xs" style={textMutedStyle()}>
-                                    {student.email || student.phone || "-"}
-                                  </p>
-                                </div>
-                              </td>
-                              <td className="px-3 py-3" style={sectionTitleStyle()}>
-                                {getGradeLabel(student)}
-                              </td>
-                              <td className="px-3 py-3" style={sectionTitleStyle()}>
-                                <div className="space-y-1">
-                                  <p>{student.activeClassCount ?? 0}개 반</p>
-                                  <p className="text-xs" style={textMutedStyle()}>
-                                    {student.activeClassNames?.join(", ") || "반 미배정"}
-                                  </p>
-                                </div>
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge
-                                  variant={getLifecycleBadgeVariant(student.lifecycleStatus)}
-                                  size="sm"
-                                >
-                                  {getLifecycleLabel(student.lifecycleStatus)}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge
-                                  variant={getPaymentBadgeVariant(student.lastPaymentStatus)}
-                                  size="sm"
-                                >
-                                  {student.hasOverduePayment
-                                    ? "미납"
-                                    : getPaymentLabel(student.lastPaymentStatus)}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge variant={student.attendanceRisk ? "warning" : "success"} size="sm">
-                                  {student.attendanceRisk ? "위험" : "안정"}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge
-                                  variant={getFollowUpBadgeVariant(student.followUpStatus)}
-                                  size="sm"
-                                >
-                                  {getFollowUpLabel(student.followUpStatus)}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3" style={sectionTitleStyle()}>
-                                {student.parentPhone || "-"}
-                              </td>
-                              <td className="px-3 py-3" style={textMutedStyle()}>
-                                {formatDate(student.updatedAt)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {total > PAGE_SIZE ? (
-                    <div className="mt-4 flex items-center justify-between">
-                      <p className="text-sm" style={textMutedStyle()}>
-                        페이지 {page + 1} / {pageCount}
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          disabled={page === 0}
-                          onClick={() => setPage((current) => Math.max(0, current - 1))}
-                        >
-                          이전
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          disabled={page + 1 >= pageCount}
-                          onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
-                        >
-                          다음
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </Card>
-          </div>
-
-          <div className="xl:col-span-4">
-            <Card variant="elevated" padding="lg" className="h-full">
-              {!selectedStudent ? (
-                <EmptyState
-                  title="학생을 선택하면 상세 패널이 열립니다."
-                  description="개별 정보 수정과 반 배정을 이 패널에서 처리합니다."
-                />
-              ) : (
-                <div className="space-y-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-1">
-                      <h2 className="text-2xl font-bold" style={sectionTitleStyle()}>
-                        {selectedStudent.name}
-                      </h2>
-                      <p className="text-sm" style={textMutedStyle()}>
-                        {selectedStudent.email || "이메일 없음"}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant={getLifecycleBadgeVariant(selectedStudent.lifecycleStatus)} size="sm">
-                        {getLifecycleLabel(selectedStudent.lifecycleStatus)}
-                      </Badge>
-                      <Badge variant={selectedStudent.attendanceRisk ? "warning" : "success"} size="sm">
-                        출결 {selectedStudent.attendanceRisk ? "위험" : "안정"}
-                      </Badge>
-                      <Badge variant={getPaymentBadgeVariant(selectedStudent.lastPaymentStatus)} size="sm">
-                        수납 {selectedStudent.hasOverduePayment ? "미납" : getPaymentLabel(selectedStudent.lastPaymentStatus)}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <input
-                      value={detailForm.name}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({ ...current, name: event.target.value }))
-                      }
-                      placeholder="학생 이름"
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <input
-                      value={detailForm.phone}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({ ...current, phone: event.target.value }))
-                      }
-                      placeholder="학생 연락처"
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <input
-                      value={detailForm.parentName}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({ ...current, parentName: event.target.value }))
-                      }
-                      placeholder="보호자 이름"
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <input
-                      value={detailForm.parentPhone}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          parentPhone: event.target.value,
-                        }))
-                      }
-                      placeholder="보호자 연락처"
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <select
-                      value={detailForm.schoolLevel}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          schoolLevel: event.target.value as SchoolLevel,
-                        }))
-                      }
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    >
-                      {SCHOOL_LEVEL_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      value={detailForm.gradeLevel}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          gradeLevel: event.target.value,
-                        }))
-                      }
-                      type="number"
-                      min="1"
-                      max="12"
-                      placeholder="학년"
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <select
-                      value={detailForm.lifecycleStatus}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          lifecycleStatus: event.target.value as LifecycleStatus,
-                        }))
-                      }
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    >
-                      {LIFECYCLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={detailForm.followUpStatus}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          followUpStatus: event.target.value as FollowUpStatus,
-                        }))
-                      }
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    >
-                      {FOLLOW_UP_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="date"
-                      value={detailForm.followUpDueDate}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          followUpDueDate: event.target.value,
-                        }))
-                      }
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <input
-                      type="date"
-                      value={detailForm.dateOfBirth}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({
-                          ...current,
-                          dateOfBirth: event.target.value,
-                        }))
-                      }
-                      className="rounded-lg px-3 py-3"
-                      style={fieldStyle()}
-                    />
-                    <input
-                      value={detailForm.address}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({ ...current, address: event.target.value }))
-                      }
-                      placeholder="주소"
-                      className="rounded-lg px-3 py-3 md:col-span-2"
-                      style={fieldStyle()}
-                    />
-                    <textarea
-                      value={detailForm.notes}
-                      onChange={(event) =>
-                        setDetailForm((current) => ({ ...current, notes: event.target.value }))
-                      }
-                      placeholder="메모"
-                      className="min-h-32 rounded-lg px-3 py-3 md:col-span-2"
-                      style={fieldStyle()}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold" style={sectionTitleStyle()}>
-                        반 배정
-                      </p>
-                      <p className="text-xs" style={textMutedStyle()}>
-                        현재 {detailClassIds.length}개 반 선택
-                      </p>
-                    </div>
-                    <div
-                      className="grid max-h-52 grid-cols-1 gap-2 overflow-y-auto rounded-lg p-3 md:grid-cols-2"
-                      style={fieldStyle()}
-                    >
-                      {classes.map((classItem) => {
-                        const checked = detailClassIds.includes(classItem.id);
-                        return (
-                          <label key={classItem.id} className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(event) =>
-                                setDetailClassIds((current) =>
-                                  event.target.checked
-                                    ? [...current, classItem.id]
-                                    : current.filter((item) => item !== classItem.id),
-                                )
-                              }
-                            />
-                            <span style={sectionTitleStyle()}>{classItem.name}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div
-                    className="grid grid-cols-2 gap-3 rounded-lg p-4"
-                    style={{ backgroundColor: theme.colors.background.secondary }}
-                  >
-                    <div>
-                      <p className="text-xs" style={textMutedStyle()}>
-                        최근 출결
-                      </p>
-                      <p className="mt-1 font-semibold" style={sectionTitleStyle()}>
-                        {formatDate(selectedStudent.lastAttendanceAt)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs" style={textMutedStyle()}>
-                        학교급
-                      </p>
-                      <p className="mt-1 font-semibold" style={sectionTitleStyle()}>
-                        {getSchoolLevelLabel(selectedStudent.schoolLevel)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between gap-2">
-                    <Button
-                      variant="danger"
-                      onClick={handleDeleteStudent}
-                      isLoading={deleteStudentMutation.isPending}
-                    >
-                      학생 삭제
-                    </Button>
-                    <Button
-                      onClick={handleSaveDetail}
-                      isLoading={
-                        updateStudentMutation.isPending || syncEnrollmentsMutation.isPending
-                      }
-                    >
-                      상세 저장
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
+            )}
+          </Card>
         </div>
       </div>
 
@@ -1300,7 +1227,7 @@ export default function AdminStudents() {
                   학생 계정 생성
                 </h2>
                 <p className="text-sm" style={textMutedStyle()}>
-                  신규 학생 계정을 만들고 기본 분류까지 바로 설정합니다.
+                  새 학생 계정을 만들고 기본 분류와 출석번호를 바로 설정합니다.
                 </p>
               </div>
               <Button variant="secondary" onClick={() => setShowCreateModal(false)}>
@@ -1312,18 +1239,14 @@ export default function AdminStudents() {
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <input
                   value={createForm.name}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, name: event.target.value }))
-                  }
+                  onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))}
                   placeholder="학생 이름"
                   className="rounded-lg px-3 py-3"
                   style={fieldStyle()}
                 />
                 <input
                   value={createForm.email}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, email: event.target.value }))
-                  }
+                  onChange={(event) => setCreateForm((current) => ({ ...current, email: event.target.value }))}
                   type="email"
                   placeholder="학생 이메일"
                   className="rounded-lg px-3 py-3"
@@ -1331,9 +1254,7 @@ export default function AdminStudents() {
                 />
                 <input
                   value={createForm.password}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, password: event.target.value }))
-                  }
+                  onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))}
                   type="password"
                   placeholder="비밀번호"
                   className="rounded-lg px-3 py-3"
@@ -1342,10 +1263,7 @@ export default function AdminStudents() {
                 <input
                   value={createForm.passwordConfirm}
                   onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      passwordConfirm: event.target.value,
-                    }))
+                    setCreateForm((current) => ({ ...current, passwordConfirm: event.target.value }))
                   }
                   type="password"
                   placeholder="비밀번호 확인"
@@ -1354,10 +1272,21 @@ export default function AdminStudents() {
                 />
                 <input
                   value={createForm.phone}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, phone: event.target.value }))
-                  }
+                  onChange={(event) => setCreateForm((current) => ({ ...current, phone: event.target.value }))}
                   placeholder="학생 연락처"
+                  className="rounded-lg px-3 py-3"
+                  style={fieldStyle()}
+                />
+                <input
+                  value={createForm.attendancePin}
+                  onChange={(event) =>
+                    setCreateForm((current) => ({
+                      ...current,
+                      attendancePin: event.target.value.replace(/\D/g, "").slice(0, 4),
+                    }))
+                  }
+                  inputMode="numeric"
+                  placeholder="출석번호 4자리"
                   className="rounded-lg px-3 py-3"
                   style={fieldStyle()}
                 />
@@ -1373,10 +1302,7 @@ export default function AdminStudents() {
                 <input
                   value={createForm.parentPhone}
                   onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      parentPhone: event.target.value,
-                    }))
+                    setCreateForm((current) => ({ ...current, parentPhone: event.target.value }))
                   }
                   placeholder="보호자 연락처"
                   className="rounded-lg px-3 py-3"
@@ -1449,10 +1375,7 @@ export default function AdminStudents() {
                   type="date"
                   value={createForm.followUpDueDate}
                   onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      followUpDueDate: event.target.value,
-                    }))
+                    setCreateForm((current) => ({ ...current, followUpDueDate: event.target.value }))
                   }
                   className="rounded-lg px-3 py-3"
                   style={fieldStyle()}
@@ -1461,28 +1384,21 @@ export default function AdminStudents() {
                   type="date"
                   value={createForm.dateOfBirth}
                   onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      dateOfBirth: event.target.value,
-                    }))
+                    setCreateForm((current) => ({ ...current, dateOfBirth: event.target.value }))
                   }
                   className="rounded-lg px-3 py-3"
                   style={fieldStyle()}
                 />
                 <input
                   value={createForm.address}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, address: event.target.value }))
-                  }
+                  onChange={(event) => setCreateForm((current) => ({ ...current, address: event.target.value }))}
                   placeholder="주소"
                   className="rounded-lg px-3 py-3 md:col-span-2"
                   style={fieldStyle()}
                 />
                 <textarea
                   value={createForm.notes}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, notes: event.target.value }))
-                  }
+                  onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))}
                   placeholder="메모"
                   className="min-h-28 rounded-lg px-3 py-3 md:col-span-2"
                   style={fieldStyle()}

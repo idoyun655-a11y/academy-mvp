@@ -4,6 +4,8 @@ import { Badge, Card, EmptyState, StatCard } from "@/components/common/CommonCom
 import { useLinkedPortalData } from "@/hooks/useLinkedPortalData";
 import {
   formatDate,
+  formatTime,
+  getCommuteStatusMeta,
   getLatestMockExam,
   STUDENT_NAV_ITEMS,
 } from "@/lib/portal";
@@ -27,65 +29,41 @@ export default function StudentHome() {
 
   if (!snapshot) {
     return (
-      <PortalLayout
-        title="학생 포털"
-        subtitle="내 학습 현황"
-        navItems={STUDENT_NAV_ITEMS}
-      >
+      <PortalLayout title="학생 홈" subtitle="학습 현황" navItems={STUDENT_NAV_ITEMS}>
         <Card variant="elevated" padding="lg">
           <EmptyState
-            title="연결된 학생 정보가 없습니다"
-            description="학생 계정과 학생 레코드가 연결되어야 포털 데이터를 확인할 수 있습니다."
+            title="연결된 학생 정보가 없습니다."
+            description="학생 계정과 학생 레코드가 연결되어야 홈 데이터를 확인할 수 있습니다."
           />
         </Card>
       </PortalLayout>
     );
   }
 
+  const todayStatusMeta = getCommuteStatusMeta(snapshot.commute.todayStatus);
+
   return (
     <PortalLayout
       title={`${snapshot.student.name} 학생 페이지`}
-      subtitle="내 학습 현황"
+      subtitle="학습 현황"
       navItems={STUDENT_NAV_ITEMS}
     >
       <div className="space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard
-            label="출석률"
-            value={`${snapshot.attendance.summary.rate}%`}
-            color="success"
-          />
-          <StatCard
-            label="수강 반"
-            value={snapshot.summary.totalClasses}
-            color="info"
-          />
-          <StatCard
-            label="공지"
-            value={snapshot.summary.totalNotices}
-            color="warning"
-          />
-          <StatCard
-            label="최근 내신"
-            value={snapshot.summary.latestSchoolGrade ?? "-"}
-            color="default"
-          />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <StatCard label="오늘 상태" value={todayStatusMeta.label} color="success" />
+          <StatCard label="수강 반" value={snapshot.summary.totalClasses} color="info" />
+          <StatCard label="공지" value={snapshot.summary.totalNotices} color="warning" />
+          <StatCard label="최근 내신" value={snapshot.summary.latestSchoolGrade ?? "-"} color="default" />
         </div>
 
         <Card variant="elevated" padding="lg">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2
-                className="text-xl font-semibold"
-                style={{ color: theme.colors.text.primary }}
-              >
-                오늘도 같은 데이터로 연동 중입니다
+              <h2 className="text-xl font-semibold" style={{ color: theme.colors.text.primary }}>
+                오늘 출결 상태
               </h2>
-              <p
-                className="text-sm mt-2"
-                style={{ color: theme.colors.text.tertiary }}
-              >
-                관리자 페이지에서 공지, 출결, 성적을 바꾸면 이 화면이 자동으로 다시 불러옵니다.
+              <p className="mt-2 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                등원 {formatTime(snapshot.commute.latestCheckInAt)} / 하원 {formatTime(snapshot.commute.latestCheckOutAt)}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -93,7 +71,7 @@ export default function StudentHome() {
                 <button
                   key={item.href}
                   onClick={() => setLocation(item.href)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium"
+                  className="rounded-lg px-4 py-2 text-sm font-medium"
                   style={{
                     backgroundColor: theme.colors.background.secondary,
                     color: theme.colors.text.primary,
@@ -107,58 +85,41 @@ export default function StudentHome() {
           </div>
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card variant="elevated" padding="lg" className="lg:col-span-2">
-            <h2
-              className="text-lg font-semibold mb-4"
-              style={{ color: theme.colors.text.primary }}
-            >
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
               최근 공지
             </h2>
             <div className="space-y-3">
               {snapshot.notices.slice(0, 5).map((notice: any) => (
                 <div
                   key={notice.id}
-                  className="p-4 rounded-lg"
+                  className="rounded-lg p-4"
                   style={{ backgroundColor: theme.colors.background.secondary }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
-                      <p
-                        className="font-medium"
-                        style={{ color: theme.colors.text.primary }}
-                      >
+                      <p className="font-medium" style={{ color: theme.colors.text.primary }}>
                         {notice.title}
                       </p>
-                      <p
-                        className="text-sm mt-2"
-                        style={{ color: theme.colors.text.tertiary }}
-                      >
+                      <p className="mt-2 text-sm" style={{ color: theme.colors.text.tertiary }}>
                         {notice.content}
                       </p>
                     </div>
-                    <p
-                      className="text-xs"
-                      style={{ color: theme.colors.text.tertiary }}
-                    >
+                    <p className="text-xs" style={{ color: theme.colors.text.tertiary }}>
                       {formatDate(notice.createdAt)}
                     </p>
                   </div>
                 </div>
               ))}
               {snapshot.notices.length === 0 && (
-                <p style={{ color: theme.colors.text.tertiary }}>
-                  게시된 공지가 없습니다.
-                </p>
+                <p style={{ color: theme.colors.text.tertiary }}>게시된 공지가 없습니다.</p>
               )}
             </div>
           </Card>
 
           <Card variant="elevated" padding="lg">
-            <h2
-              className="text-lg font-semibold mb-4"
-              style={{ color: theme.colors.text.primary }}
-            >
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
               성적 요약
             </h2>
             {latestMockExam ? (
@@ -177,48 +138,69 @@ export default function StudentHome() {
                 </p>
               </div>
             ) : (
-              <p style={{ color: theme.colors.text.tertiary }}>
-                등록된 성적이 없습니다.
-              </p>
+              <p style={{ color: theme.colors.text.tertiary }}>등록된 성적이 없습니다.</p>
             )}
           </Card>
         </div>
 
-        <Card variant="elevated" padding="lg">
-          <h2
-            className="text-lg font-semibold mb-4"
-            style={{ color: theme.colors.text.primary }}
-          >
-            수강 중인 반
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {snapshot.classes.map((item: any) => (
-              <div
-                key={item.id}
-                className="p-4 rounded-lg"
-                style={{ backgroundColor: theme.colors.background.secondary }}
-              >
-                <p
-                  className="font-medium"
-                  style={{ color: theme.colors.text.primary }}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card variant="elevated" padding="lg">
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+              최근 출결
+            </h2>
+            <div className="space-y-3">
+              {snapshot.commute.records.slice(0, 5).map((record: any) => {
+                const meta = getCommuteStatusMeta(record.status);
+                return (
+                  <div
+                    key={record.id}
+                    className="rounded-lg p-4"
+                    style={{ backgroundColor: theme.colors.background.secondary }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium" style={{ color: theme.colors.text.primary }}>
+                          {formatDate(record.commuteDate)}
+                        </p>
+                        <p className="mt-2 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                          등원 {formatTime(record.checkInAt)} / 하원 {formatTime(record.checkOutAt)}
+                        </p>
+                      </div>
+                      <Badge size="sm" style={{ backgroundColor: meta.color, color: "#fff" }}>
+                        {meta.label}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card variant="elevated" padding="lg">
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+              수강 중인 반
+            </h2>
+            <div className="grid grid-cols-1 gap-4">
+              {snapshot.classes.map((item: any) => (
+                <div
+                  key={item.id}
+                  className="rounded-lg p-4"
+                  style={{ backgroundColor: theme.colors.background.secondary }}
                 >
-                  {item.name}
-                </p>
-                <p
-                  className="text-sm mt-1"
-                  style={{ color: theme.colors.text.tertiary }}
-                >
-                  {item.subject} · {item.teacherName || "강사 미지정"} · {item.room || "강의실 미지정"}
-                </p>
-              </div>
-            ))}
-            {snapshot.classes.length === 0 && (
-              <p style={{ color: theme.colors.text.tertiary }}>
-                등록된 수강 반이 없습니다.
-              </p>
-            )}
-          </div>
-        </Card>
+                  <p className="font-medium" style={{ color: theme.colors.text.primary }}>
+                    {item.name}
+                  </p>
+                  <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                    {item.subject} · {item.teacherName || "강사 미지정"} · {item.room || "강의실 미지정"}
+                  </p>
+                </div>
+              ))}
+              {snapshot.classes.length === 0 && (
+                <p style={{ color: theme.colors.text.tertiary }}>등록된 수강 반이 없습니다.</p>
+              )}
+            </div>
+          </Card>
+        </div>
       </div>
     </PortalLayout>
   );

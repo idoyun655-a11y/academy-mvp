@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { appRouter } from "./routers";
+import { appRouter } from "./server/routers";
+import type { TrpcContext } from "./server/_core/context";
 import { COOKIE_NAME } from "./shared/const";
-import type { TrpcContext } from "./_core/context";
 
 type CookieCall = {
   name: string;
@@ -15,34 +15,39 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
 
   const user: AuthenticatedUser = {
     id: 1,
-    openId: "sample-user",
-    email: "sample@example.com",
-    name: "Sample User",
-    loginMethod: "manus",
-    role: "user",
+    openId: "test-admin",
+    email: "admin@example.com",
+    name: "Test Admin",
+    phone: null,
+    password: "",
+    loginMethod: "email",
+    role: "admin",
+    isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
+    deletedAt: null,
   };
 
-  const ctx: TrpcContext = {
-    user,
-    req: {
-      protocol: "https",
-      headers: {},
-    } as TrpcContext["req"],
-    res: {
-      clearCookie: (name: string, options: Record<string, unknown>) => {
-        clearedCookies.push({ name, options });
-      },
-    } as TrpcContext["res"],
+  return {
+    ctx: {
+      user,
+      req: {
+        protocol: "https",
+        headers: {},
+      } as TrpcContext["req"],
+      res: {
+        clearCookie: (name: string, options: Record<string, unknown>) => {
+          clearedCookies.push({ name, options });
+        },
+      } as TrpcContext["res"],
+    },
+    clearedCookies,
   };
-
-  return { ctx, clearedCookies };
 }
 
 describe("auth.logout", () => {
-  it("clears the session cookie and reports success", async () => {
+  it("clears the session cookie and returns success", async () => {
     const { ctx, clearedCookies } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 

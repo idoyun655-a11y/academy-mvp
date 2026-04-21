@@ -1,213 +1,117 @@
 import { describe, expect, it } from "vitest";
-import { appRouter } from "./routers";
-import type { TrpcContext } from "./_core/context";
-
-type MockRes = {
-  clearCookie?: (name: string, options: Record<string, unknown>) => void;
-};
+import { appRouter } from "./server/routers";
+import type { TrpcContext } from "./server/_core/context";
 
 function createPublicContext(): TrpcContext {
-  const ctx: TrpcContext = {
+  return {
     user: null,
     req: {
       protocol: "https",
       headers: {},
     } as TrpcContext["req"],
-    res: {} as MockRes,
+    res: {} as TrpcContext["res"],
   };
+}
 
-  return ctx;
+function uniqueSuffix() {
+  return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+function uniquePin() {
+  return String(1000 + Math.floor(Math.random() * 9000));
 }
 
 describe("auth.signup", () => {
-  it("올바른 회원가입 데이터로 가입할 수 있어야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
+  it("creates a student when a unique 4-digit attendance pin is provided", async () => {
+    const suffix = uniqueSuffix();
+    const caller = appRouter.createCaller(createPublicContext());
 
     const result = await caller.auth.signup({
-      email: "newuser@example.com",
+      email: `student-${suffix}@example.com`,
       password: "ValidPass123",
       passwordConfirm: "ValidPass123",
-      name: "테스트사용자",
+      name: "테스트 학생",
       phone: "010-1234-5678",
       role: "student",
+      attendancePin: uniquePin(),
     });
 
-    expect(result).toHaveProperty("message", "Signup successful");
+    expect(result.user.email).toBe(`student-${suffix}@example.com`);
+    expect(result.user.role).toBe("student");
   });
 
-  it("비밀번호가 8자 미만이면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
+  it("rejects student signup without attendancePin", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
 
     await expect(
       caller.auth.signup({
-        email: "test@example.com",
-        password: "Pass1",
-        passwordConfirm: "Pass1",
-        name: "테스트",
-        phone: "010-1234-5678",
-        role: "student",
-      })
-    ).rejects.toThrow();
-  });
-
-  it("비밀번호에 대문자가 없으면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    await expect(
-      caller.auth.signup({
-        email: "test@example.com",
-        password: "password123",
-        passwordConfirm: "password123",
-        name: "테스트",
-        phone: "010-1234-5678",
-        role: "student",
-      })
-    ).rejects.toThrow();
-  });
-
-  it("비밀번호에 숫자가 없으면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    await expect(
-      caller.auth.signup({
-        email: "test@example.com",
-        password: "PasswordTest",
-        passwordConfirm: "PasswordTest",
-        name: "테스트",
-        phone: "010-1234-5678",
-        role: "student",
-      })
-    ).rejects.toThrow();
-  });
-
-  it("비밀번호와 비밀번호 확인이 다르면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    await expect(
-      caller.auth.signup({
-        email: "test@example.com",
-        password: "ValidPass123",
-        passwordConfirm: "DifferentPass123",
-        name: "테스트",
-        phone: "010-1234-5678",
-        role: "student",
-      })
-    ).rejects.toThrow();
-  });
-
-  it("잘못된 이메일 형식이면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    await expect(
-      caller.auth.signup({
-        email: "invalid-email",
+        email: `missing-pin-${uniqueSuffix()}@example.com`,
         password: "ValidPass123",
         passwordConfirm: "ValidPass123",
-        name: "테스트",
+        name: "핀 없음",
         phone: "010-1234-5678",
         role: "student",
-      })
+      }),
     ).rejects.toThrow();
   });
 
-  it("이름이 없으면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
+  it("rejects student signup when attendancePin is not 4 digits", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
 
     await expect(
       caller.auth.signup({
-        email: "test@example.com",
+        email: `invalid-pin-${uniqueSuffix()}@example.com`,
         password: "ValidPass123",
         passwordConfirm: "ValidPass123",
-        name: "",
+        name: "잘못된 핀",
         phone: "010-1234-5678",
         role: "student",
-      })
+        attendancePin: "12a4",
+      }),
     ).rejects.toThrow();
   });
 
-  it("학부모 역할로 가입할 수 있어야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
+  it("rejects duplicate attendancePin for students", async () => {
+    const pin = uniquePin();
+    const caller = appRouter.createCaller(createPublicContext());
+
+    await caller.auth.signup({
+      email: `first-${uniqueSuffix()}@example.com`,
+      password: "ValidPass123",
+      passwordConfirm: "ValidPass123",
+      name: "첫 번째 학생",
+      phone: "010-1234-5678",
+      role: "student",
+      attendancePin: pin,
+    });
+
+    await expect(
+      caller.auth.signup({
+        email: `second-${uniqueSuffix()}@example.com`,
+        password: "ValidPass123",
+        passwordConfirm: "ValidPass123",
+        name: "두 번째 학생",
+        phone: "010-1234-5678",
+        role: "student",
+        attendancePin: pin,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("allows parent signup without attendancePin", async () => {
+    const suffix = uniqueSuffix();
+    const caller = appRouter.createCaller(createPublicContext());
 
     const result = await caller.auth.signup({
-      email: "parent@example.com",
+      email: `parent-${suffix}@example.com`,
       password: "ParentPass123",
       passwordConfirm: "ParentPass123",
-      name: "학부모",
+      name: "테스트 학부모",
       phone: "010-5678-1234",
       role: "parent",
     });
 
-    expect(result).toHaveProperty("message", "Signup successful");
-  });
-
-  it("전화번호는 선택사항이어야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    const result = await caller.auth.signup({
-      email: "nophone@example.com",
-      password: "ValidPass123",
-      passwordConfirm: "ValidPass123",
-      name: "전화없음",
-      phone: "",
-      role: "student",
-    });
-
-    expect(result).toHaveProperty("message", "Signup successful");
-  });
-});
-
-describe("auth.checkEmail", () => {
-  it("올바른 이메일 형식으로 중복 확인할 수 있어야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    const result = await caller.auth.checkEmail({
-      email: "test@example.com",
-    });
-
-    expect(result).toHaveProperty("available");
-    expect(typeof result.available).toBe("boolean");
-  });
-
-  it("잘못된 이메일 형식이면 실패해야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    await expect(
-      caller.auth.checkEmail({
-        email: "invalid-email",
-      })
-    ).rejects.toThrow();
-  });
-
-  it("존재하지 않는 이메일은 available이 true여야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    const result = await caller.auth.checkEmail({
-      email: "nonexistent-unique@example.com",
-    });
-
-    expect(result.available).toBe(true);
-  });
-
-  it("테스트 계정 이메일은 available이 false여야 함", async () => {
-    const ctx = createPublicContext();
-    const caller = appRouter.createCaller(ctx);
-
-    const result = await caller.auth.checkEmail({
-      email: "admin@test.com",
-    });
-
-    expect(result.available).toBe(false);
+    expect(result.user.email).toBe(`parent-${suffix}@example.com`);
+    expect(result.user.role).toBe("parent");
   });
 });

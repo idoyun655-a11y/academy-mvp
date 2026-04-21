@@ -1,11 +1,12 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
-import { attendance, classes, classEnrollments, students, tuitionPayments } from "../drizzle/schema";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import { classes, classEnrollments, commuteLogs, students, tuitionPayments } from "../drizzle/schema";
 import {
   getDb,
   getStudentEnrollmentIds,
   syncStudentEnrollments,
   updateStudent,
 } from "./db";
+import { getCommuteTodayStatus } from "./commute";
 import { readLocalStore } from "./localStore";
 
 export type StudentOpsSavedView =
@@ -16,7 +17,7 @@ export type StudentOpsSavedView =
   | "high"
   | "unassigned_class"
   | "overdue"
-  | "attendance_risk"
+  | "pending_checkout"
   | "follow_up"
   | "on_hold"
   | "leaving";
@@ -26,6 +27,7 @@ export type StudentOpsLifecycleStatus = "active" | "on_hold" | "leaving" | "ende
 export type StudentOpsFollowUpStatus = "none" | "needs_contact" | "scheduled" | "done";
 export type StudentOpsSortBy = "default" | "name" | "gradeLevel" | "updatedAt" | "createdAt";
 export type StudentOpsSortOrder = "asc" | "desc";
+export type StudentOpsCommuteStatus = "not_arrived" | "checked_in" | "checked_out";
 
 export type StudentOpsListInput = {
   limit: number;
@@ -58,6 +60,7 @@ type StudentRecord = {
   name: string;
   email?: string | null;
   phone?: string | null;
+  attendancePin?: string | null;
   parentPhone?: string | null;
   parentName?: string | null;
   schoolLevel?: StudentOpsSchoolLevel | null;
@@ -86,10 +89,11 @@ type EnrollmentRecord = {
   deletedAt?: string | Date | null;
 };
 
-type AttendanceRecord = {
+type CommuteRecord = {
   studentId: number;
-  status: "present" | "late" | "absent" | "early_leave";
-  attendanceDate: string | Date;
+  commuteDate: string;
+  checkInAt?: string | Date | null;
+  checkOutAt?: string | Date | null;
 };
 
 type TuitionRecord = {
@@ -126,6 +130,7 @@ function isActiveRecord(record: { deletedAt?: string | Date | null } | undefined
 function normalizeStudent(student: StudentRecord) {
   return {
     ...student,
+    attendancePin: student.attendancePin ?? null,
     schoolLevel: student.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
     gradeLevel: student.gradeLevel ?? DEFAULT_STUDENT_META.gradeLevel,
     lifecycleStatus: student.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
@@ -138,19 +143,6 @@ function toDate(value?: string | Date | null) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function startOfToday() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
-}
-
-function daysAgo(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  date.setHours(0, 0, 0, 0);
-  return date;
 }
 
 function uniqueSorted(values: string[]) {
@@ -207,8 +199,8 @@ function matchesSavedView(item: StudentOpsItem, savedView: StudentOpsSavedView) 
   if (savedView === "overdue") {
     return item.hasOverduePayment;
   }
-  if (savedView === "attendance_risk") {
-    return item.attendanceRisk;
+  if (savedView === "pending_checkout") {
+    return item.lifecycleStatus !== "ended" && item.commuteStatus === "checked_in";
   }
   if (savedView === "follow_up") {
     return item.followUpRequired;
@@ -231,6 +223,7 @@ function matchesSearch(item: StudentOpsItem, search?: string) {
     item.name,
     item.email,
     item.phone,
+    item.attendancePin,
     item.parentName,
     item.parentPhone,
     item.notes,
@@ -254,27 +247,21 @@ function buildStudentOpsItem(
   student: ReturnType<typeof normalizeStudent>,
   activeClassIds: number[],
   activeClassNames: string[],
-  attendanceRows: AttendanceRecord[],
+  commuteRows: CommuteRecord[],
   paymentRows: TuitionRecord[],
 ) {
-  const today = startOfToday();
-  const riskSince = daysAgo(30);
-  const recentAttendance = attendanceRows.filter((row) => {
-    const attendanceDate = toDate(row.attendanceDate);
-    return Boolean(attendanceDate && attendanceDate >= riskSince);
-  });
-  const absentCount = recentAttendance.filter((row) => row.status === "absent").length;
-  const lateCount = recentAttendance.filter(
-    (row) => row.status === "late" || row.status === "early_leave",
-  ).length;
-  const attendanceRisk = absentCount >= 2 || lateCount >= 3;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const hasOverduePayment = paymentRows.some((row) => {
     if (row.status === "overdue") return true;
     if (row.status !== "pending") return false;
     const dueDate = toDate(row.dueDate);
     return Boolean(dueDate && dueDate < today);
   });
-  const lastAttendanceAt = getLatestDate(attendanceRows.map((row) => row.attendanceDate));
+
+  const lastCheckInAt = getLatestDate(commuteRows.map((row) => row.checkInAt));
+  const lastCheckOutAt = getLatestDate(commuteRows.map((row) => row.checkOutAt));
   const followUpRequired =
     student.followUpStatus === "needs_contact" || student.followUpStatus === "scheduled";
 
@@ -288,11 +275,15 @@ function buildStudentOpsItem(
     activeClassCount: activeClassNames.length,
     activeClassNames,
     hasOverduePayment,
-    attendanceRisk,
     followUpRequired,
-    lastAttendanceAt,
+    commuteStatus: getCommuteTodayStatus(commuteRows),
+    lastCheckInAt,
+    lastCheckOutAt,
     lastPaymentStatus: getLastPaymentStatus(paymentRows),
-    gradeLabel: formatGradeLabel(student.schoolLevel as StudentOpsSchoolLevel, student.gradeLevel as number | null),
+    gradeLabel: formatGradeLabel(
+      student.schoolLevel as StudentOpsSchoolLevel,
+      student.gradeLevel as number | null,
+    ),
   };
 }
 
@@ -333,99 +324,16 @@ function sortStudentOpsItems(
   });
 }
 
-async function loadStudentOpsItems() {
-  const db = await getDb();
-
-  if (!db) {
-    const store = await readLocalStore();
-    const activeStudents = store.students
-      .filter((student) => isActiveRecord(student))
-      .map((student) => normalizeStudent(student));
-    const activeClasses = store.classes.filter((item) => isActiveRecord(item)) as ClassRecord[];
-    const activeEnrollments = store.classEnrollments.filter(
-      (item) => item.status === "active" && isActiveRecord(item),
-    ) as EnrollmentRecord[];
-    const attendanceRows = store.attendance as AttendanceRecord[];
-    const paymentRows = store.tuitionPayments as TuitionRecord[];
-
-    return buildStudentOpsItemsFromCollections(
-      activeStudents,
-      activeClasses,
-      activeEnrollments,
-      attendanceRows,
-      paymentRows,
-    );
-  }
-
-  const studentRows = (await db
-    .select()
-    .from(students)
-    .where(isNull(students.deletedAt))) as StudentRecord[];
-
-  if (studentRows.length === 0) return [];
-
-  const studentIds = studentRows.map((student) => student.id);
-  const [classRows, enrollmentRows, attendanceRows, paymentRows] = await Promise.all([
-    db
-      .select({ id: classes.id, name: classes.name })
-      .from(classes)
-      .where(isNull(classes.deletedAt)),
-    db
-      .select({
-        classId: classEnrollments.classId,
-        studentId: classEnrollments.studentId,
-        status: classEnrollments.status,
-        deletedAt: classEnrollments.deletedAt,
-      })
-      .from(classEnrollments)
-      .where(
-        and(
-          inArray(classEnrollments.studentId, studentIds),
-          isNull(classEnrollments.deletedAt),
-          eq(classEnrollments.status, "active"),
-        ),
-      ),
-    db
-      .select({
-        studentId: attendance.studentId,
-        status: attendance.status,
-        attendanceDate: attendance.attendanceDate,
-      })
-      .from(attendance)
-      .where(inArray(attendance.studentId, studentIds)),
-    db
-      .select({
-        studentId: tuitionPayments.studentId,
-        status: tuitionPayments.status,
-        dueDate: tuitionPayments.dueDate,
-        paidDate: tuitionPayments.paidDate,
-        createdAt: tuitionPayments.createdAt,
-        updatedAt: tuitionPayments.updatedAt,
-        month: tuitionPayments.month,
-      })
-      .from(tuitionPayments)
-      .where(inArray(tuitionPayments.studentId, studentIds)),
-  ]);
-
-  return buildStudentOpsItemsFromCollections(
-    studentRows.map((student) => normalizeStudent(student)),
-    classRows as ClassRecord[],
-    enrollmentRows as EnrollmentRecord[],
-    attendanceRows as AttendanceRecord[],
-    paymentRows as TuitionRecord[],
-  );
-}
-
 function buildStudentOpsItemsFromCollections(
   studentRows: Array<ReturnType<typeof normalizeStudent>>,
   classRows: ClassRecord[],
   enrollmentRows: EnrollmentRecord[],
-  attendanceRows: AttendanceRecord[],
+  commuteRows: CommuteRecord[],
   paymentRows: TuitionRecord[],
 ) {
   const classNameMap = new Map(classRows.map((row) => [row.id, row.name]));
   const enrollmentsByStudent = new Map<number, number[]>();
-  const attendanceByStudent = new Map<number, AttendanceRecord[]>();
+  const commuteByStudent = new Map<number, CommuteRecord[]>();
   const paymentsByStudent = new Map<number, TuitionRecord[]>();
 
   enrollmentRows.forEach((row) => {
@@ -434,10 +342,10 @@ function buildStudentOpsItemsFromCollections(
     enrollmentsByStudent.set(row.studentId, existing);
   });
 
-  attendanceRows.forEach((row) => {
-    const existing = attendanceByStudent.get(row.studentId) ?? [];
+  commuteRows.forEach((row) => {
+    const existing = commuteByStudent.get(row.studentId) ?? [];
     existing.push(row);
-    attendanceByStudent.set(row.studentId, existing);
+    commuteByStudent.set(row.studentId, existing);
   });
 
   paymentRows.forEach((row) => {
@@ -460,10 +368,94 @@ function buildStudentOpsItemsFromCollections(
       student,
       activeClassIds,
       activeClassNames,
-      attendanceByStudent.get(student.id) ?? [],
+      commuteByStudent.get(student.id) ?? [],
       paymentsByStudent.get(student.id) ?? [],
     );
   });
+}
+
+async function loadStudentOpsItems() {
+  const db = await getDb();
+
+  if (!db) {
+    const store = await readLocalStore();
+    const activeStudents = store.students
+      .filter((student) => isActiveRecord(student))
+      .map((student) => normalizeStudent(student));
+    const activeClasses = store.classes.filter((item) => isActiveRecord(item)) as ClassRecord[];
+    const activeEnrollments = store.classEnrollments.filter(
+      (item) => item.status === "active" && isActiveRecord(item),
+    ) as EnrollmentRecord[];
+    const commuteRows = store.commuteLogs as CommuteRecord[];
+    const paymentRows = store.tuitionPayments as TuitionRecord[];
+
+    return buildStudentOpsItemsFromCollections(
+      activeStudents,
+      activeClasses,
+      activeEnrollments,
+      commuteRows,
+      paymentRows,
+    );
+  }
+
+  const studentRows = (await db
+    .select()
+    .from(students)
+    .where(isNull(students.deletedAt))) as StudentRecord[];
+
+  if (studentRows.length === 0) return [];
+
+  const studentIds = studentRows.map((student) => student.id);
+  const [classRows, enrollmentRows, commuteRows, paymentRows] = await Promise.all([
+    db
+      .select({ id: classes.id, name: classes.name })
+      .from(classes)
+      .where(isNull(classes.deletedAt)),
+    db
+      .select({
+        classId: classEnrollments.classId,
+        studentId: classEnrollments.studentId,
+        status: classEnrollments.status,
+        deletedAt: classEnrollments.deletedAt,
+      })
+      .from(classEnrollments)
+      .where(
+        and(
+          inArray(classEnrollments.studentId, studentIds),
+          isNull(classEnrollments.deletedAt),
+          eq(classEnrollments.status, "active"),
+        ),
+      ),
+    db
+      .select({
+        studentId: commuteLogs.studentId,
+        commuteDate: commuteLogs.commuteDate,
+        checkInAt: commuteLogs.checkInAt,
+        checkOutAt: commuteLogs.checkOutAt,
+      })
+      .from(commuteLogs)
+      .where(inArray(commuteLogs.studentId, studentIds)),
+    db
+      .select({
+        studentId: tuitionPayments.studentId,
+        status: tuitionPayments.status,
+        dueDate: tuitionPayments.dueDate,
+        paidDate: tuitionPayments.paidDate,
+        createdAt: tuitionPayments.createdAt,
+        updatedAt: tuitionPayments.updatedAt,
+        month: tuitionPayments.month,
+      })
+      .from(tuitionPayments)
+      .where(inArray(tuitionPayments.studentId, studentIds)),
+  ]);
+
+  return buildStudentOpsItemsFromCollections(
+    studentRows.map((student) => normalizeStudent(student)),
+    classRows as ClassRecord[],
+    enrollmentRows as EnrollmentRecord[],
+    commuteRows as CommuteRecord[],
+    paymentRows as TuitionRecord[],
+  );
 }
 
 export async function listStudentOps(input: StudentOpsListInput) {
@@ -500,7 +492,7 @@ export async function getStudentOpsSummary() {
     high: items.filter((item) => matchesSavedView(item, "high")).length,
     unassignedClass: items.filter((item) => matchesSavedView(item, "unassigned_class")).length,
     overdue: items.filter((item) => matchesSavedView(item, "overdue")).length,
-    attendanceRisk: items.filter((item) => matchesSavedView(item, "attendance_risk")).length,
+    pendingCheckout: items.filter((item) => matchesSavedView(item, "pending_checkout")).length,
     followUp: items.filter((item) => matchesSavedView(item, "follow_up")).length,
     onHold: items.filter((item) => matchesSavedView(item, "on_hold")).length,
     leaving: items.filter((item) => matchesSavedView(item, "leaving")).length,

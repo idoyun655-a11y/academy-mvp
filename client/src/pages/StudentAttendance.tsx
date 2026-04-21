@@ -5,7 +5,8 @@ import { useLinkedPortalData } from "@/hooks/useLinkedPortalData";
 import {
   STUDENT_NAV_ITEMS,
   formatDate,
-  getAttendanceMeta,
+  formatTime,
+  getCommuteStatusMeta,
 } from "@/lib/portal";
 import { theme } from "@/styles/design-system";
 import { useMemo, useState } from "react";
@@ -18,8 +19,8 @@ export default function StudentAttendance() {
 
   const filteredRecords = useMemo(() => {
     if (!snapshot) return [];
-    return snapshot.attendance.records.filter((record: any) => {
-      const month = new Date(record.attendanceDate).getMonth() + 1;
+    return snapshot.commute.records.filter((record: any) => {
+      const month = new Date(record.commuteDate).getMonth() + 1;
       return month === selectedMonth;
     });
   }, [selectedMonth, snapshot]);
@@ -34,44 +35,35 @@ export default function StudentAttendance() {
 
   if (!snapshot) {
     return (
-      <PortalLayout
-        title="출결 현황"
-        subtitle="내 출결 기록"
-        navItems={STUDENT_NAV_ITEMS}
-      >
+      <PortalLayout title="출결" subtitle="등원/하원 기록" navItems={STUDENT_NAV_ITEMS}>
         <Card variant="elevated" padding="lg">
-          <EmptyState title="출결 데이터를 불러올 수 없습니다" />
+          <EmptyState title="출결 데이터를 불러올 수 없습니다." />
         </Card>
       </PortalLayout>
     );
   }
 
+  const todayStatusMeta = getCommuteStatusMeta(snapshot.commute.todayStatus);
+
   return (
-    <PortalLayout
-      title="출결 현황"
-      subtitle="내 출결 기록"
-      navItems={STUDENT_NAV_ITEMS}
-    >
+    <PortalLayout title="출결" subtitle="등원/하원 기록" navItems={STUDENT_NAV_ITEMS}>
       <div className="space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="출석률" value={`${snapshot.attendance.summary.rate}%`} color="success" />
-          <StatCard label="출석" value={snapshot.attendance.summary.present} color="success" />
-          <StatCard label="지각" value={snapshot.attendance.summary.late} color="warning" />
-          <StatCard label="결석" value={snapshot.attendance.summary.absent} color="error" />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <StatCard label="오늘 상태" value={todayStatusMeta.label} color="info" />
+          <StatCard label="최근 등원" value={formatTime(snapshot.commute.latestCheckInAt)} color="success" />
+          <StatCard label="최근 하원" value={formatTime(snapshot.commute.latestCheckOutAt)} color="warning" />
+          <StatCard label="기록 수" value={snapshot.commute.summary.total} color="default" />
         </div>
 
         <Card variant="elevated" padding="lg">
-          <div className="flex items-center justify-between mb-4">
-            <h2
-              className="text-lg font-semibold"
-              style={{ color: theme.colors.text.primary }}
-            >
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
               월별 출결 기록
             </h2>
             <select
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="px-3 py-2 rounded-lg"
+              onChange={(event) => setSelectedMonth(Number(event.target.value))}
+              className="rounded-lg px-3 py-2"
               style={{
                 backgroundColor: theme.colors.background.secondary,
                 color: theme.colors.text.primary,
@@ -88,35 +80,34 @@ export default function StudentAttendance() {
 
           <div className="space-y-3">
             {filteredRecords.map((record: any) => {
-              const meta = getAttendanceMeta(record.status);
+              const meta = getCommuteStatusMeta(record.status);
               return (
                 <div
                   key={record.id}
-                  className="flex items-center justify-between p-4 rounded-lg"
+                  className="rounded-lg p-4"
                   style={{ backgroundColor: theme.colors.background.secondary }}
                 >
-                  <div>
-                    <p style={{ color: theme.colors.text.primary }}>
-                      {record.className || "반 미지정"}
-                    </p>
-                    <p
-                      className="text-sm mt-1"
-                      style={{ color: theme.colors.text.tertiary }}
-                    >
-                      {formatDate(record.attendanceDate)}
-                      {record.notes ? ` · ${record.notes}` : ""}
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium" style={{ color: theme.colors.text.primary }}>
+                        {formatDate(record.commuteDate)}
+                      </p>
+                      <div className="mt-2 space-y-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                        <p>등원 {formatTime(record.checkInAt)}</p>
+                        <p>하원 {formatTime(record.checkOutAt)}</p>
+                      </div>
+                    </div>
+                    <Badge size="sm" style={{ backgroundColor: meta.color, color: "#fff" }}>
+                      {meta.label}
+                    </Badge>
                   </div>
-                  <Badge size="sm" style={{ backgroundColor: meta.color, color: "#fff" }}>
-                    {meta.label}
-                  </Badge>
                 </div>
               );
             })}
 
             {filteredRecords.length === 0 && (
               <p style={{ color: theme.colors.text.tertiary }}>
-                선택한 월의 출결 기록이 없습니다.
+                선택한 달에는 출결 기록이 없습니다.
               </p>
             )}
           </div>

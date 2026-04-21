@@ -4,6 +4,7 @@ import {
   academyEvents,
   adminLogs,
   attendance,
+  commuteLogs,
   classEnrollments,
   classSchedules,
   classes,
@@ -18,6 +19,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { ensureAttendancePinAvailable, isValidAttendancePin } from "./commute";
 import {
   getNextLocalId,
   readLocalStore,
@@ -65,6 +67,7 @@ function normalizeEmail(email: string) {
 function normalizeStudentRecord<T extends Record<string, any>>(student: T): T {
   return {
     ...student,
+    attendancePin: student.attendancePin ?? null,
     schoolLevel: student.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
     gradeLevel: student.gradeLevel ?? DEFAULT_STUDENT_META.gradeLevel,
     lifecycleStatus: student.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
@@ -488,7 +491,7 @@ export async function getStudents(
     if (filters?.name) {
       const keyword = filters.name.toLowerCase();
       filtered = filtered.filter((student) =>
-        [student.name, student.email, student.phone]
+        [student.name, student.email, student.phone, student.attendancePin]
           .filter((value): value is string => typeof value === "string" && value.length > 0)
           .some((value) => value.toLowerCase().includes(keyword)),
       );
@@ -578,6 +581,10 @@ export async function getStudentByUserId(userId: number) {
 }
 
 export async function createStudent(data: typeof students.$inferInsert) {
+  if (data.attendancePin) {
+    data.attendancePin = await ensureAttendancePinAvailable(data.attendancePin);
+  }
+
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -588,6 +595,7 @@ export async function createStudent(data: typeof students.$inferInsert) {
         name: data.name,
         email: data.email ? normalizeEmail(data.email) : null,
         phone: data.phone ?? null,
+        attendancePin: data.attendancePin ?? null,
         parentPhone: data.parentPhone ?? null,
         parentName: data.parentName ?? null,
         schoolLevel: data.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
@@ -619,6 +627,12 @@ export async function createStudent(data: typeof students.$inferInsert) {
 }
 
 export async function updateStudent(id: number, data: Partial<typeof students.$inferInsert>) {
+  if (data.attendancePin !== undefined) {
+    data.attendancePin = data.attendancePin
+      ? await ensureAttendancePinAvailable(data.attendancePin, id)
+      : null;
+  }
+
   const db = await getDb();
   if (!db) {
     return updateLocalStore((store) => {
@@ -633,6 +647,7 @@ export async function updateStudent(id: number, data: Partial<typeof students.$i
         student.email = data.email ? normalizeEmail(data.email) : null;
       }
       if (data.phone !== undefined) student.phone = data.phone ?? null;
+      if (data.attendancePin !== undefined) student.attendancePin = data.attendancePin ?? null;
       if (data.parentPhone !== undefined) student.parentPhone = data.parentPhone ?? null;
       if (data.parentName !== undefined) student.parentName = data.parentName ?? null;
       if (data.schoolLevel !== undefined) {
@@ -659,6 +674,33 @@ export async function updateStudent(id: number, data: Partial<typeof students.$i
 
   await db.update(students).set(data).where(eq(students.id, id));
   return getStudentById(id);
+}
+
+export async function getCommuteLogsByStudent(
+  studentId: number,
+  limit: number = 60,
+) {
+  const db = await getDb();
+  if (!db) {
+    const store = await readLocalStore();
+    return store.commuteLogs
+      .filter((entry) => entry.studentId === studentId)
+      .sort((left, right) => {
+        const leftTime =
+          new Date(left.checkOutAt ?? left.checkInAt ?? left.createdAt ?? 0).getTime();
+        const rightTime =
+          new Date(right.checkOutAt ?? right.checkInAt ?? right.createdAt ?? 0).getTime();
+        return rightTime - leftTime;
+      })
+      .slice(0, limit);
+  }
+
+  return db
+    .select()
+    .from(commuteLogs)
+    .where(eq(commuteLogs.studentId, studentId))
+    .orderBy(desc(commuteLogs.commuteDate), desc(commuteLogs.checkInAt), desc(commuteLogs.id))
+    .limit(limit);
 }
 
 export async function softDeleteStudent(id: number) {
