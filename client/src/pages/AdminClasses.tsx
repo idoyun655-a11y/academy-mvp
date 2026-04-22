@@ -4,7 +4,7 @@ import { Card, EmptyState, SearchBar } from "@/components/common/CommonComponent
 import { LIVE_QUERY_OPTIONS } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
 import { theme } from "@/styles/design-system";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 const DAY_OPTIONS = [
@@ -17,17 +17,6 @@ const DAY_OPTIONS = [
   { value: 0, shortLabel: "일", label: "일요일" },
 ];
 
-const DEFAULT_FORM = {
-  name: "",
-  subject: "",
-  capacity: "20",
-  room: "",
-  selectedDays: [1],
-  startTime: "16:00",
-  endTime: "18:00",
-};
-
-type FormState = typeof DEFAULT_FORM;
 type ModalMode = "create" | "edit" | null;
 
 type ClassItem = {
@@ -36,23 +25,46 @@ type ClassItem = {
   subject: string;
   capacity: number;
   room?: string | null;
+  isActive?: boolean | number | null;
 };
 
-type ClassScheduleItem = {
-  id: number;
-  classId: number;
+type ScheduleDraft = {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
 };
 
+type FormState = {
+  name: string;
+  subject: string;
+  capacity: string;
+  room: string;
+  schedules: ScheduleDraft[];
+};
+
+type ClassScheduleItem = ScheduleDraft & {
+  id: number;
+  classId: number;
+};
+
 const daySortMap = new Map(DAY_OPTIONS.map((day, index) => [day.value, index]));
 
-function sortDayValues(values: number[]) {
-  return [...values].sort((left, right) => {
-    const leftOrder = daySortMap.get(left) ?? 99;
-    const rightOrder = daySortMap.get(right) ?? 99;
-    return leftOrder - rightOrder;
+function createDefaultForm(): FormState {
+  return {
+    name: "",
+    subject: "",
+    capacity: "20",
+    room: "",
+    schedules: [{ dayOfWeek: 1, startTime: "16:00", endTime: "18:00" }],
+  };
+}
+
+function sortSchedules<T extends ScheduleDraft>(schedules: T[]) {
+  return [...schedules].sort((left, right) => {
+    const leftOrder = daySortMap.get(left.dayOfWeek) ?? 99;
+    const rightOrder = daySortMap.get(right.dayOfWeek) ?? 99;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.startTime.localeCompare(right.startTime);
   });
 }
 
@@ -69,11 +81,8 @@ function getClassIdFromMutationResult(result: any) {
 
 function ClassSchedulePreview({ classId }: { classId: number }) {
   const { data } = trpc.classSchedules.list.useQuery({ classId }, LIVE_QUERY_OPTIONS);
-
   const schedules = useMemo(
-    () => sortDayValues((data ?? []).map((schedule: ClassScheduleItem) => schedule.dayOfWeek))
-      .map((dayOfWeek) => (data ?? []).find((schedule: ClassScheduleItem) => schedule.dayOfWeek === dayOfWeek))
-      .filter(Boolean) as ClassScheduleItem[],
+    () => sortSchedules((data ?? []) as ClassScheduleItem[]),
     [data],
   );
 
@@ -106,7 +115,7 @@ export default function AdminClasses() {
   const [searchName, setSearchName] = useState("");
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
-  const [formData, setFormData] = useState<FormState>(DEFAULT_FORM);
+  const [formData, setFormData] = useState<FormState>(() => createDefaultForm());
 
   const { data, isLoading } = trpc.classes.list.useQuery(
     { limit: 100, offset: 0 },
@@ -124,15 +133,18 @@ export default function AdminClasses() {
 
   const createClassMutation = trpc.classes.create.useMutation();
   const updateClassMutation = trpc.classes.update.useMutation();
+  const deleteClassMutation = trpc.classes.delete.useMutation();
   const replaceSchedulesMutation = trpc.classSchedules.replaceForClass.useMutation();
 
   const classes = useMemo(() => {
-    const items = (data?.data ?? []) as ClassItem[];
+    const activeItems = ((data?.data ?? []) as ClassItem[]).filter(
+      (item) => item.isActive !== false && item.isActive !== 0,
+    );
     const query = searchName.trim().toLowerCase();
 
-    if (!query) return items;
+    if (!query) return activeItems;
 
-    return items.filter((item) => {
+    return activeItems.filter((item) => {
       const name = item.name?.toLowerCase?.() ?? "";
       const subject = item.subject?.toLowerCase?.() ?? "";
       const room = item.room?.toLowerCase?.() ?? "";
@@ -145,15 +157,17 @@ export default function AdminClasses() {
       return;
     }
 
-    const schedules = (selectedSchedules ?? []) as ClassScheduleItem[];
-    const primarySchedule = schedules[0];
-    const selectedDays = sortDayValues(schedules.map((schedule) => schedule.dayOfWeek));
+    const schedules = sortSchedules((selectedSchedules ?? []) as ClassScheduleItem[]).map(
+      (schedule) => ({
+        dayOfWeek: schedule.dayOfWeek,
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+      }),
+    );
 
     setFormData((current) => ({
       ...current,
-      selectedDays: selectedDays.length > 0 ? selectedDays : DEFAULT_FORM.selectedDays,
-      startTime: primarySchedule?.startTime ?? DEFAULT_FORM.startTime,
-      endTime: primarySchedule?.endTime ?? DEFAULT_FORM.endTime,
+      schedules: schedules.length > 0 ? schedules : createDefaultForm().schedules,
     }));
   }, [modalMode, selectedClass, selectedSchedules]);
 
@@ -165,12 +179,12 @@ export default function AdminClasses() {
   const resetModal = () => {
     setModalMode(null);
     setSelectedClass(null);
-    setFormData(DEFAULT_FORM);
+    setFormData(createDefaultForm());
   };
 
   const openCreateModal = () => {
     setSelectedClass(null);
-    setFormData(DEFAULT_FORM);
+    setFormData(createDefaultForm());
     setModalMode("create");
   };
 
@@ -181,9 +195,7 @@ export default function AdminClasses() {
       subject: classItem.subject ?? "",
       capacity: String(classItem.capacity ?? 20),
       room: classItem.room ?? "",
-      selectedDays: DEFAULT_FORM.selectedDays,
-      startTime: DEFAULT_FORM.startTime,
-      endTime: DEFAULT_FORM.endTime,
+      schedules: createDefaultForm().schedules,
     });
     setModalMode("edit");
   };
@@ -196,45 +208,87 @@ export default function AdminClasses() {
     ]);
   };
 
-  const toggleDay = (dayOfWeek: number) => {
+  const updateSchedule = (index: number, patch: Partial<ScheduleDraft>) => {
+    setFormData((current) => ({
+      ...current,
+      schedules: current.schedules.map((schedule, scheduleIndex) =>
+        scheduleIndex === index ? { ...schedule, ...patch } : schedule,
+      ),
+    }));
+  };
+
+  const addSchedule = () => {
     setFormData((current) => {
-      const exists = current.selectedDays.includes(dayOfWeek);
-      const nextDays = exists
-        ? current.selectedDays.filter((value) => value !== dayOfWeek)
-        : [...current.selectedDays, dayOfWeek];
+      const usedDays = new Set(current.schedules.map((schedule) => schedule.dayOfWeek));
+      const nextDay = DAY_OPTIONS.find((day) => !usedDays.has(day.value))?.value ?? 1;
 
       return {
         ...current,
-        selectedDays: sortDayValues(nextDays),
+        schedules: [
+          ...current.schedules,
+          { dayOfWeek: nextDay, startTime: "16:00", endTime: "18:00" },
+        ],
       };
     });
   };
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const removeSchedule = (index: number) => {
+    setFormData((current) => ({
+      ...current,
+      schedules: current.schedules.filter((_, scheduleIndex) => scheduleIndex !== index),
+    }));
+  };
+
+  const handleDeleteClass = async (classItem: ClassItem) => {
+    const confirmed = window.confirm(`'${classItem.name}' 반을 삭제하시겠습니까?`);
+    if (!confirmed) return;
+
+    try {
+      await deleteClassMutation.mutateAsync({ id: classItem.id });
+      toast.success("반을 삭제했습니다.");
+      await refreshData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "반 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const trimmedName = formData.name.trim();
     const trimmedSubject = formData.subject.trim();
     const trimmedRoom = formData.room.trim();
     const capacity = Math.max(1, Number(formData.capacity) || 20);
+    const schedulePayload = sortSchedules(formData.schedules).map((schedule) => ({
+      dayOfWeek: schedule.dayOfWeek,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+    }));
 
     if (!trimmedName || !trimmedSubject) {
       toast.error("반 이름과 과목을 입력해주세요.");
       return;
     }
 
-    if (formData.selectedDays.length === 0) {
-      toast.error("수업 요일을 하나 이상 선택해주세요.");
+    if (schedulePayload.length === 0) {
+      toast.error("수업 요일과 시간을 하나 이상 추가해주세요.");
       return;
     }
 
-    if (!formData.startTime || !formData.endTime) {
-      toast.error("시작 시간과 종료 시간을 입력해주세요.");
+    const daySet = new Set(schedulePayload.map((schedule) => schedule.dayOfWeek));
+    if (daySet.size !== schedulePayload.length) {
+      toast.error("같은 요일은 한 번만 등록할 수 있습니다.");
       return;
     }
 
-    if (formData.startTime >= formData.endTime) {
-      toast.error("종료 시간은 시작 시간보다 늦어야 합니다.");
+    const invalidSchedule = schedulePayload.find(
+      (schedule) =>
+        !schedule.startTime ||
+        !schedule.endTime ||
+        schedule.startTime >= schedule.endTime,
+    );
+    if (invalidSchedule) {
+      toast.error("각 요일의 종료 시간은 시작 시간보다 늦어야 합니다.");
       return;
     }
 
@@ -249,12 +303,6 @@ export default function AdminClasses() {
       capacity,
       room: trimmedRoom,
     };
-
-    const schedulePayload = sortDayValues(formData.selectedDays).map((dayOfWeek) => ({
-      dayOfWeek,
-      startTime: formData.startTime,
-      endTime: formData.endTime,
-    }));
 
     try {
       if (modalMode === "create") {
@@ -273,7 +321,7 @@ export default function AdminClasses() {
           schedules: schedulePayload,
         });
 
-        toast.success("반과 복수 요일 시간표를 등록했습니다.");
+        toast.success("반과 요일별 시간표를 등록했습니다.");
       }
 
       if (modalMode === "edit" && selectedClass) {
@@ -287,7 +335,7 @@ export default function AdminClasses() {
           schedules: schedulePayload,
         });
 
-        toast.success("반 정보와 시간표를 수정했습니다.");
+        toast.success("반 정보와 요일별 시간표를 수정했습니다.");
       }
 
       resetModal();
@@ -313,7 +361,7 @@ export default function AdminClasses() {
               반 관리
             </h1>
             <p className="text-base" style={{ color: theme.colors.text.tertiary }}>
-              반 정보와 주간 시간표를 한 화면에서 관리합니다.
+              반 정보와 요일별 시간표를 한 화면에서 관리합니다.
             </p>
           </div>
           <button
@@ -340,7 +388,7 @@ export default function AdminClasses() {
           ) : classes.length === 0 ? (
             <EmptyState
               title="등록된 반이 없습니다"
-              description="반을 만들고 월·수·금처럼 주간 시간표를 먼저 붙여두면 운영이 훨씬 쉬워집니다."
+              description="반을 만들고 월·수·금처럼 요일별 시간표를 붙여두면 운영이 훨씬 쉬워집니다."
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -368,18 +416,33 @@ export default function AdminClasses() {
                         {item.subject} · 정원 {item.capacity}명 · {item.room || "강의실 미지정"}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(item)}
-                      className="px-3 py-2 rounded-lg text-sm font-medium"
-                      style={{
-                        backgroundColor: theme.colors.background.tertiary,
-                        color: theme.colors.text.primary,
-                        border: `1px solid ${theme.colors.border.primary}`,
-                      }}
-                    >
-                      수정
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(item)}
+                        className="px-3 py-2 rounded-lg text-sm font-medium"
+                        style={{
+                          backgroundColor: theme.colors.background.tertiary,
+                          color: theme.colors.text.primary,
+                          border: `1px solid ${theme.colors.border.primary}`,
+                        }}
+                      >
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClass(item)}
+                        disabled={deleteClassMutation.isPending}
+                        className="px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
+                        style={{
+                          backgroundColor: "rgba(239, 68, 68, 0.12)",
+                          color: "#ef4444",
+                          border: "1px solid rgba(239, 68, 68, 0.35)",
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-4">
@@ -414,7 +477,7 @@ export default function AdminClasses() {
                   {modalMode === "create" ? "반 생성" : "반 수정"}
                 </h2>
                 <p className="text-sm mt-1" style={{ color: theme.colors.text.tertiary }}>
-                  선택한 요일 전체에 같은 시간대를 적용합니다.
+                  요일마다 시작 시간과 종료 시간을 따로 설정합니다.
                 </p>
               </div>
               <button
@@ -540,105 +603,104 @@ export default function AdminClasses() {
                       className="text-lg font-semibold"
                       style={{ color: theme.colors.text.primary }}
                     >
-                      주간 시간표
+                      요일별 시간표
                     </h3>
                     <p className="text-sm mt-1" style={{ color: theme.colors.text.tertiary }}>
-                      월~일까지 여러 요일을 선택할 수 있습니다.
+                      월~일 중 필요한 요일을 추가하고, 각 요일마다 시간을 따로 넣습니다.
                     </p>
                   </div>
-                  {modalMode === "edit" && isSelectedSchedulesLoading ? (
-                    <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
-                      불러오는 중...
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="mb-4">
-                  <p
-                    className="text-sm font-medium mb-2"
-                    style={{ color: theme.colors.text.primary }}
+                  <button
+                    type="button"
+                    onClick={addSchedule}
+                    className="px-3 py-2 rounded-lg text-sm font-medium"
+                    style={{
+                      backgroundColor: theme.colors.background.tertiary,
+                      color: theme.colors.text.primary,
+                      border: `1px solid ${theme.colors.border.primary}`,
+                    }}
                   >
-                    수업 요일
-                  </p>
-                  <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
-                    {DAY_OPTIONS.map((day) => {
-                      const isSelected = formData.selectedDays.includes(day.value);
-
-                      return (
-                        <button
-                          key={day.value}
-                          type="button"
-                          onClick={() => toggleDay(day.value)}
-                          className="rounded-lg px-3 py-3 text-sm font-semibold transition-colors"
-                          style={{
-                            backgroundColor: isSelected
-                              ? theme.colors.accent.primary
-                              : theme.colors.background.tertiary,
-                            color: isSelected ? "#fff" : theme.colors.text.primary,
-                            border: `1px solid ${
-                              isSelected
-                                ? theme.colors.accent.primary
-                                : theme.colors.border.primary
-                            }`,
-                          }}
-                        >
-                          {day.shortLabel}
-                        </button>
-                      );
-                    })}
-                  </div>
+                    요일 추가
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      className="block text-sm font-medium mb-2"
-                      style={{ color: theme.colors.text.primary }}
-                    >
-                      시작 시간
-                    </label>
-                    <input
-                      value={formData.startTime}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          startTime: event.target.value,
-                        }))
-                      }
-                      type="time"
-                      className="w-full px-3 py-3 rounded-lg"
-                      style={{
-                        backgroundColor: theme.colors.background.tertiary,
-                        color: theme.colors.text.primary,
-                        border: `1px solid ${theme.colors.border.primary}`,
-                      }}
-                    />
-                  </div>
+                {modalMode === "edit" && isSelectedSchedulesLoading ? (
+                  <p className="mb-3 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                    기존 시간표를 불러오는 중...
+                  </p>
+                ) : null}
 
-                  <div>
-                    <label
-                      className="block text-sm font-medium mb-2"
-                      style={{ color: theme.colors.text.primary }}
-                    >
-                      종료 시간
-                    </label>
-                    <input
-                      value={formData.endTime}
-                      onChange={(event) =>
-                        setFormData((current) => ({
-                          ...current,
-                          endTime: event.target.value,
-                        }))
-                      }
-                      type="time"
-                      className="w-full px-3 py-3 rounded-lg"
+                <div className="space-y-3">
+                  {formData.schedules.map((schedule, index) => (
+                    <div
+                      key={`${schedule.dayOfWeek}-${index}`}
+                      className="grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-12"
                       style={{
                         backgroundColor: theme.colors.background.tertiary,
-                        color: theme.colors.text.primary,
-                        border: `1px solid ${theme.colors.border.primary}`,
+                        borderColor: theme.colors.border.primary,
                       }}
-                    />
-                  </div>
+                    >
+                      <select
+                        value={schedule.dayOfWeek}
+                        onChange={(event) =>
+                          updateSchedule(index, { dayOfWeek: Number(event.target.value) })
+                        }
+                        className="rounded-lg px-3 py-3 md:col-span-4"
+                        style={{
+                          backgroundColor: theme.colors.background.secondary,
+                          color: theme.colors.text.primary,
+                          border: `1px solid ${theme.colors.border.primary}`,
+                        }}
+                      >
+                        {DAY_OPTIONS.map((day) => (
+                          <option key={day.value} value={day.value}>
+                            {day.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <input
+                        value={schedule.startTime}
+                        onChange={(event) =>
+                          updateSchedule(index, { startTime: event.target.value })
+                        }
+                        type="time"
+                        className="rounded-lg px-3 py-3 md:col-span-3"
+                        style={{
+                          backgroundColor: theme.colors.background.secondary,
+                          color: theme.colors.text.primary,
+                          border: `1px solid ${theme.colors.border.primary}`,
+                        }}
+                      />
+
+                      <input
+                        value={schedule.endTime}
+                        onChange={(event) =>
+                          updateSchedule(index, { endTime: event.target.value })
+                        }
+                        type="time"
+                        className="rounded-lg px-3 py-3 md:col-span-3"
+                        style={{
+                          backgroundColor: theme.colors.background.secondary,
+                          color: theme.colors.text.primary,
+                          border: `1px solid ${theme.colors.border.primary}`,
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => removeSchedule(index)}
+                        disabled={formData.schedules.length === 1}
+                        className="rounded-lg px-3 py-3 text-sm font-medium disabled:opacity-50 md:col-span-2"
+                        style={{
+                          backgroundColor: "rgba(239, 68, 68, 0.12)",
+                          color: "#ef4444",
+                          border: "1px solid rgba(239, 68, 68, 0.35)",
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
