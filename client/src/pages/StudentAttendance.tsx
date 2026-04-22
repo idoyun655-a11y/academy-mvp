@@ -8,7 +8,7 @@ import {
   formatTime,
   getCommuteStatusMeta,
 } from "@/lib/portal";
-import { theme } from "@/styles/design-system";
+import { uiThemeVars } from "@/styles/runtime-theme";
 import { useMemo, useState } from "react";
 
 export default function StudentAttendance() {
@@ -35,7 +35,7 @@ export default function StudentAttendance() {
 
   if (!snapshot) {
     return (
-      <PortalLayout title="출결" subtitle="등원/하원 기록" navItems={STUDENT_NAV_ITEMS}>
+      <PortalLayout title="출결" subtitle="등원/하원 기록" navItems={STUDENT_NAV_ITEMS} variant="portal-light">
         <Card variant="elevated" padding="lg">
           <EmptyState title="출결 데이터를 불러올 수 없습니다." />
         </Card>
@@ -46,7 +46,7 @@ export default function StudentAttendance() {
   const todayStatusMeta = getCommuteStatusMeta(snapshot.commute.todayStatus);
 
   return (
-    <PortalLayout title="출결" subtitle="등원/하원 기록" navItems={STUDENT_NAV_ITEMS}>
+    <PortalLayout title="출결" subtitle="등원과 하원 기록을 확인하세요." navItems={STUDENT_NAV_ITEMS} variant="portal-light">
       <div className="space-y-6">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <StatCard label="오늘 상태" value={todayStatusMeta.label} color="info" />
@@ -56,8 +56,8 @@ export default function StudentAttendance() {
         </div>
 
         <Card variant="elevated" padding="lg">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
               월별 출결 기록
             </h2>
             <select
@@ -65,9 +65,9 @@ export default function StudentAttendance() {
               onChange={(event) => setSelectedMonth(Number(event.target.value))}
               className="rounded-lg px-3 py-2"
               style={{
-                backgroundColor: theme.colors.background.secondary,
-                color: theme.colors.text.primary,
-                border: `1px solid ${theme.colors.border.primary}`,
+                backgroundColor: uiThemeVars.surfaceAlt,
+                color: uiThemeVars.textPrimary,
+                border: `1px solid ${uiThemeVars.borderPrimary}`,
               }}
             >
               {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
@@ -84,15 +84,15 @@ export default function StudentAttendance() {
               return (
                 <div
                   key={record.id}
-                  className="rounded-lg p-4"
-                  style={{ backgroundColor: theme.colors.background.secondary }}
+                  className="rounded-2xl p-4"
+                  style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-medium" style={{ color: theme.colors.text.primary }}>
+                      <p className="font-medium" style={{ color: uiThemeVars.textPrimary }}>
                         {formatDate(record.commuteDate)}
                       </p>
-                      <div className="mt-2 space-y-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                      <div className="mt-2 space-y-1 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                         <p>등원 {formatTime(record.checkInAt)}</p>
                         <p>하원 {formatTime(record.checkOutAt)}</p>
                       </div>
@@ -105,11 +105,9 @@ export default function StudentAttendance() {
               );
             })}
 
-            {filteredRecords.length === 0 && (
-              <p style={{ color: theme.colors.text.tertiary }}>
-                선택한 달에는 출결 기록이 없습니다.
-              </p>
-            )}
+            {filteredRecords.length === 0 ? (
+              <p style={{ color: uiThemeVars.textTertiary }}>선택한 달에는 출결 기록이 없습니다.</p>
+            ) : null}
           </div>
         </Card>
       </div>

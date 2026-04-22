@@ -15,7 +15,7 @@ const DAY_OPTIONS = [
   { value: 5, shortLabel: "금", label: "금요일" },
   { value: 6, shortLabel: "토", label: "토요일" },
   { value: 0, shortLabel: "일", label: "일요일" },
-];
+] as const;
 
 type ModalMode = "create" | "edit" | null;
 
@@ -34,29 +34,35 @@ type ScheduleDraft = {
   endTime: string;
 };
 
-type FormState = {
-  name: string;
-  subject: string;
-  capacity: string;
-  room: string;
-  schedules: ScheduleDraft[];
-};
-
 type ClassScheduleItem = ScheduleDraft & {
   id: number;
   classId: number;
 };
 
-const daySortMap = new Map(DAY_OPTIONS.map((day, index) => [day.value, index]));
+type DayScheduleState = {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+};
 
-function createDefaultForm(): FormState {
-  return {
-    name: "",
-    subject: "",
-    capacity: "20",
-    room: "",
-    schedules: [{ dayOfWeek: 1, startTime: "16:00", endTime: "18:00" }],
-  };
+type WeeklyScheduleState = Record<number, DayScheduleState>;
+
+type FormState = {
+  name: string;
+  subject: string;
+  capacity: string;
+  room: string;
+  weeklySchedule: WeeklyScheduleState;
+};
+
+const daySortMap = new Map<number, number>(DAY_OPTIONS.map((day, index) => [day.value, index]));
+
+function sortDayValues(values: number[]) {
+  return [...values].sort((left, right) => {
+    const leftOrder = daySortMap.get(left) ?? 99;
+    const rightOrder = daySortMap.get(right) ?? 99;
+    return leftOrder - rightOrder;
+  });
 }
 
 function sortSchedules<T extends ScheduleDraft>(schedules: T[]) {
@@ -72,10 +78,54 @@ function getDayLabel(dayOfWeek: number) {
   return DAY_OPTIONS.find((day) => day.value === dayOfWeek)?.label ?? "-";
 }
 
-function getClassIdFromMutationResult(result: any) {
+function createWeeklyScheduleState(
+  enabledDays: number[] = [],
+  schedules: ClassScheduleItem[] = [],
+): WeeklyScheduleState {
+  const base = Object.fromEntries(
+    DAY_OPTIONS.map((day) => [
+      day.value,
+      {
+        enabled: enabledDays.includes(day.value),
+        startTime: "16:00",
+        endTime: "18:00",
+      },
+    ]),
+  ) as WeeklyScheduleState;
+
+  schedules.forEach((schedule) => {
+    base[schedule.dayOfWeek] = {
+      enabled: true,
+      startTime: schedule.startTime || "16:00",
+      endTime: schedule.endTime || "18:00",
+    };
+  });
+
+  return base;
+}
+
+function createDefaultForm(): FormState {
+  return {
+    name: "",
+    subject: "",
+    capacity: "20",
+    room: "",
+    weeklySchedule: createWeeklyScheduleState([1]),
+  };
+}
+
+function getClassIdFromMutationResult(result: unknown) {
+  const payload = result as
+    | { id?: number; insertId?: number }
+    | Array<{ id?: number; insertId?: number }>
+    | undefined;
+
   const classId = Number(
-    result?.id ?? result?.insertId ?? result?.[0]?.id ?? result?.[0]?.insertId ?? 0,
+    Array.isArray(payload)
+      ? payload[0]?.id ?? payload[0]?.insertId ?? 0
+      : payload?.id ?? payload?.insertId ?? 0,
   );
+
   return Number.isFinite(classId) && classId > 0 ? classId : 0;
 }
 
@@ -97,11 +147,7 @@ function ClassSchedulePreview({ classId }: { classId: number }) {
   return (
     <div className="space-y-1">
       {schedules.map((schedule) => (
-        <p
-          key={schedule.id}
-          className="text-sm"
-          style={{ color: theme.colors.text.tertiary }}
-        >
+        <p key={schedule.id} className="text-sm" style={{ color: theme.colors.text.tertiary }}>
           {getDayLabel(schedule.dayOfWeek)} · {schedule.startTime} - {schedule.endTime}
         </p>
       ))}
@@ -126,9 +172,7 @@ export default function AdminClasses() {
   const { data: selectedSchedules, isLoading: isSelectedSchedulesLoading } =
     trpc.classSchedules.list.useQuery(
       { classId: selectedClassId },
-      {
-        enabled: modalMode === "edit" && selectedClassId > 0,
-      },
+      { enabled: modalMode === "edit" && selectedClassId > 0 },
     );
 
   const createClassMutation = trpc.classes.create.useMutation();
@@ -157,24 +201,18 @@ export default function AdminClasses() {
       return;
     }
 
-    const schedules = sortSchedules((selectedSchedules ?? []) as ClassScheduleItem[]).map(
-      (schedule) => ({
-        dayOfWeek: schedule.dayOfWeek,
-        startTime: schedule.startTime,
-        endTime: schedule.endTime,
-      }),
-    );
-
+    const schedules = (selectedSchedules ?? []) as ClassScheduleItem[];
     setFormData((current) => ({
       ...current,
-      schedules: schedules.length > 0 ? schedules : createDefaultForm().schedules,
+      weeklySchedule: createWeeklyScheduleState([], schedules),
     }));
   }, [modalMode, selectedClass, selectedSchedules]);
 
   const isSaving =
     createClassMutation.isPending ||
     updateClassMutation.isPending ||
-    replaceSchedulesMutation.isPending;
+    replaceSchedulesMutation.isPending ||
+    deleteClassMutation.isPending;
 
   const resetModal = () => {
     setModalMode(null);
@@ -195,7 +233,7 @@ export default function AdminClasses() {
       subject: classItem.subject ?? "",
       capacity: String(classItem.capacity ?? 20),
       room: classItem.room ?? "",
-      schedules: createDefaultForm().schedules,
+      weeklySchedule: createWeeklyScheduleState(),
     });
     setModalMode("edit");
   };
@@ -208,44 +246,32 @@ export default function AdminClasses() {
     ]);
   };
 
-  const updateSchedule = (index: number, patch: Partial<ScheduleDraft>) => {
+  const updateScheduleDay = (dayOfWeek: number, patch: Partial<DayScheduleState>) => {
     setFormData((current) => ({
       ...current,
-      schedules: current.schedules.map((schedule, scheduleIndex) =>
-        scheduleIndex === index ? { ...schedule, ...patch } : schedule,
-      ),
+      weeklySchedule: {
+        ...current.weeklySchedule,
+        [dayOfWeek]: {
+          ...current.weeklySchedule[dayOfWeek],
+          ...patch,
+        },
+      },
     }));
   };
 
-  const addSchedule = () => {
-    setFormData((current) => {
-      const usedDays = new Set(current.schedules.map((schedule) => schedule.dayOfWeek));
-      const nextDay = DAY_OPTIONS.find((day) => !usedDays.has(day.value))?.value ?? 1;
+  const handleDelete = async (classItem: ClassItem) => {
+    const confirmed = window.confirm(
+      `'${classItem.name}' 반을 삭제할까요?\n삭제해도 과거 기록은 남고, 활성 목록에서만 제외됩니다.`,
+    );
 
-      return {
-        ...current,
-        schedules: [
-          ...current.schedules,
-          { dayOfWeek: nextDay, startTime: "16:00", endTime: "18:00" },
-        ],
-      };
-    });
-  };
-
-  const removeSchedule = (index: number) => {
-    setFormData((current) => ({
-      ...current,
-      schedules: current.schedules.filter((_, scheduleIndex) => scheduleIndex !== index),
-    }));
-  };
-
-  const handleDeleteClass = async (classItem: ClassItem) => {
-    const confirmed = window.confirm(`'${classItem.name}' 반을 삭제하시겠습니까?`);
     if (!confirmed) return;
 
     try {
       await deleteClassMutation.mutateAsync({ id: classItem.id });
       toast.success("반을 삭제했습니다.");
+      if (selectedClass?.id === classItem.id) {
+        resetModal();
+      }
       await refreshData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "반 삭제 중 오류가 발생했습니다.");
@@ -259,42 +285,42 @@ export default function AdminClasses() {
     const trimmedSubject = formData.subject.trim();
     const trimmedRoom = formData.room.trim();
     const capacity = Math.max(1, Number(formData.capacity) || 20);
-    const schedulePayload = sortSchedules(formData.schedules).map((schedule) => ({
-      dayOfWeek: schedule.dayOfWeek,
-      startTime: schedule.startTime,
-      endTime: schedule.endTime,
-    }));
 
     if (!trimmedName || !trimmedSubject) {
       toast.error("반 이름과 과목을 입력해주세요.");
       return;
     }
 
-    if (schedulePayload.length === 0) {
-      toast.error("수업 요일과 시간을 하나 이상 추가해주세요.");
-      return;
-    }
-
-    const daySet = new Set(schedulePayload.map((schedule) => schedule.dayOfWeek));
-    if (daySet.size !== schedulePayload.length) {
-      toast.error("같은 요일은 한 번만 등록할 수 있습니다.");
-      return;
-    }
-
-    const invalidSchedule = schedulePayload.find(
-      (schedule) =>
-        !schedule.startTime ||
-        !schedule.endTime ||
-        schedule.startTime >= schedule.endTime,
-    );
-    if (invalidSchedule) {
-      toast.error("각 요일의 종료 시간은 시작 시간보다 늦어야 합니다.");
-      return;
-    }
-
     if (modalMode === "edit" && selectedClassId > 0 && isSelectedSchedulesLoading) {
       toast.error("기존 시간표를 불러오는 중입니다. 잠시 후 다시 저장해주세요.");
       return;
+    }
+
+    const schedulePayload = sortDayValues(
+      DAY_OPTIONS.filter((day) => formData.weeklySchedule[day.value].enabled).map(
+        (day) => day.value,
+      ),
+    ).map((dayOfWeek) => ({
+      dayOfWeek,
+      startTime: formData.weeklySchedule[dayOfWeek].startTime,
+      endTime: formData.weeklySchedule[dayOfWeek].endTime,
+    }));
+
+    if (schedulePayload.length === 0) {
+      toast.error("수업 요일을 최소 1개 이상 선택해주세요.");
+      return;
+    }
+
+    for (const schedule of schedulePayload) {
+      if (!schedule.startTime || !schedule.endTime) {
+        toast.error(`${getDayLabel(schedule.dayOfWeek)}의 시작/종료 시간을 모두 입력해주세요.`);
+        return;
+      }
+
+      if (schedule.startTime >= schedule.endTime) {
+        toast.error(`${getDayLabel(schedule.dayOfWeek)}의 종료 시간은 시작 시간보다 늦어야 합니다.`);
+        return;
+      }
     }
 
     const classPayload = {
@@ -335,7 +361,7 @@ export default function AdminClasses() {
           schedules: schedulePayload,
         });
 
-        toast.success("반 정보와 요일별 시간표를 수정했습니다.");
+        toast.success("반 정보와 시간표를 수정했습니다.");
       }
 
       resetModal();
@@ -361,7 +387,7 @@ export default function AdminClasses() {
               반 관리
             </h1>
             <p className="text-base" style={{ color: theme.colors.text.tertiary }}>
-              반 정보와 요일별 시간표를 한 화면에서 관리합니다.
+              반 정보와 주간 시간표를 한 화면에서 관리합니다.
             </p>
           </div>
           <button
@@ -388,14 +414,14 @@ export default function AdminClasses() {
           ) : classes.length === 0 ? (
             <EmptyState
               title="등록된 반이 없습니다"
-              description="반을 만들고 월·수·금처럼 요일별 시간표를 붙여두면 운영이 훨씬 쉬워집니다."
+              description="반을 만들고 요일별 시간표를 먼저 붙여두면 운영이 훨씬 쉬워집니다."
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {classes.map((item) => (
                 <div
                   key={item.id}
-                  className="p-4 rounded-lg border"
+                  className="rounded-lg border p-4"
                   style={{
                     backgroundColor: theme.colors.background.secondary,
                     borderColor: theme.colors.border.primary,
@@ -403,16 +429,10 @@ export default function AdminClasses() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p
-                        className="text-lg font-semibold"
-                        style={{ color: theme.colors.text.primary }}
-                      >
+                      <p className="text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
                         {item.name}
                       </p>
-                      <p
-                        className="text-sm mt-1"
-                        style={{ color: theme.colors.text.tertiary }}
-                      >
+                      <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
                         {item.subject} · 정원 {item.capacity}명 · {item.room || "강의실 미지정"}
                       </p>
                     </div>
@@ -420,7 +440,7 @@ export default function AdminClasses() {
                       <button
                         type="button"
                         onClick={() => openEditModal(item)}
-                        className="px-3 py-2 rounded-lg text-sm font-medium"
+                        className="rounded-lg px-3 py-2 text-sm font-medium"
                         style={{
                           backgroundColor: theme.colors.background.tertiary,
                           color: theme.colors.text.primary,
@@ -431,13 +451,13 @@ export default function AdminClasses() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteClass(item)}
+                        onClick={() => void handleDelete(item)}
                         disabled={deleteClassMutation.isPending}
-                        className="px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
+                        className="rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-60"
                         style={{
-                          backgroundColor: "rgba(239, 68, 68, 0.12)",
-                          color: "#ef4444",
-                          border: "1px solid rgba(239, 68, 68, 0.35)",
+                          backgroundColor: `${theme.colors.status.error}18`,
+                          color: theme.colors.status.error,
+                          border: `1px solid ${theme.colors.status.error}55`,
                         }}
                       >
                         삭제
@@ -447,7 +467,7 @@ export default function AdminClasses() {
 
                   <div className="mt-4">
                     <p
-                      className="text-xs font-semibold uppercase tracking-[0.2em] mb-2"
+                      className="mb-2 text-xs font-semibold uppercase tracking-[0.2em]"
                       style={{ color: theme.colors.text.tertiary }}
                     >
                       주간 시간표
@@ -461,29 +481,26 @@ export default function AdminClasses() {
         </Card>
       </div>
 
-      {modalMode && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      {modalMode ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <Card
             variant="elevated"
             padding="lg"
-            className="max-h-[90vh] w-full max-w-2xl overflow-hidden"
+            className="max-h-[90vh] w-full max-w-3xl overflow-hidden"
           >
-            <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <h2
-                  className="text-2xl font-bold"
-                  style={{ color: theme.colors.text.primary }}
-                >
+                <h2 className="text-2xl font-bold" style={{ color: theme.colors.text.primary }}>
                   {modalMode === "create" ? "반 생성" : "반 수정"}
                 </h2>
-                <p className="text-sm mt-1" style={{ color: theme.colors.text.tertiary }}>
-                  요일마다 시작 시간과 종료 시간을 따로 설정합니다.
+                <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                  월요일부터 일요일까지 필요한 요일만 켜고, 각 요일마다 다른 수업 시간을 설정하세요.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={resetModal}
-                className="px-3 py-2 rounded-lg text-sm"
+                className="rounded-lg px-3 py-2 text-sm"
                 style={{
                   backgroundColor: theme.colors.background.secondary,
                   color: theme.colors.text.primary,
@@ -498,12 +515,9 @@ export default function AdminClasses() {
               onSubmit={handleSubmit}
               className="max-h-[calc(90vh-96px)] space-y-5 overflow-y-auto pr-1"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: theme.colors.text.primary }}
-                  >
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     반 이름
                   </label>
                   <input
@@ -511,8 +525,8 @@ export default function AdminClasses() {
                     onChange={(event) =>
                       setFormData((current) => ({ ...current, name: event.target.value }))
                     }
-                    placeholder="예: 고2 심화반"
-                    className="w-full px-3 py-3 rounded-lg"
+                    placeholder="예: 중2 심화반"
+                    className="w-full rounded-lg px-3 py-3"
                     style={{
                       backgroundColor: theme.colors.background.secondary,
                       color: theme.colors.text.primary,
@@ -522,10 +536,7 @@ export default function AdminClasses() {
                 </div>
 
                 <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: theme.colors.text.primary }}
-                  >
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     과목
                   </label>
                   <input
@@ -534,7 +545,7 @@ export default function AdminClasses() {
                       setFormData((current) => ({ ...current, subject: event.target.value }))
                     }
                     placeholder="예: 영어"
-                    className="w-full px-3 py-3 rounded-lg"
+                    className="w-full rounded-lg px-3 py-3"
                     style={{
                       backgroundColor: theme.colors.background.secondary,
                       color: theme.colors.text.primary,
@@ -544,10 +555,7 @@ export default function AdminClasses() {
                 </div>
 
                 <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: theme.colors.text.primary }}
-                  >
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     정원
                   </label>
                   <input
@@ -558,7 +566,7 @@ export default function AdminClasses() {
                     type="number"
                     min="1"
                     placeholder="20"
-                    className="w-full px-3 py-3 rounded-lg"
+                    className="w-full rounded-lg px-3 py-3"
                     style={{
                       backgroundColor: theme.colors.background.secondary,
                       color: theme.colors.text.primary,
@@ -568,10 +576,7 @@ export default function AdminClasses() {
                 </div>
 
                 <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: theme.colors.text.primary }}
-                  >
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                     강의실
                   </label>
                   <input
@@ -580,7 +585,7 @@ export default function AdminClasses() {
                       setFormData((current) => ({ ...current, room: event.target.value }))
                     }
                     placeholder="예: 3강의실"
-                    className="w-full px-3 py-3 rounded-lg"
+                    className="w-full rounded-lg px-3 py-3"
                     style={{
                       backgroundColor: theme.colors.background.secondary,
                       color: theme.colors.text.primary,
@@ -597,142 +602,152 @@ export default function AdminClasses() {
                   borderColor: theme.colors.border.primary,
                 }}
               >
-                <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
-                    <h3
-                      className="text-lg font-semibold"
-                      style={{ color: theme.colors.text.primary }}
-                    >
-                      요일별 시간표
+                    <h3 className="text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+                      주간 시간표
                     </h3>
-                    <p className="text-sm mt-1" style={{ color: theme.colors.text.tertiary }}>
-                      월~일 중 필요한 요일을 추가하고, 각 요일마다 시간을 따로 넣습니다.
+                    <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                      요일을 켠 뒤 각 요일마다 다른 시작/종료 시간을 설정할 수 있습니다.
                     </p>
                   </div>
+                  {modalMode === "edit" && isSelectedSchedulesLoading ? (
+                    <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
+                      불러오는 중...
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3">
+                  {DAY_OPTIONS.map((day) => {
+                    const schedule = formData.weeklySchedule[day.value];
+
+                    return (
+                      <div
+                        key={day.value}
+                        className="grid grid-cols-1 gap-3 rounded-xl border p-4 md:grid-cols-[180px_1fr_1fr]"
+                        style={{
+                          backgroundColor: schedule.enabled
+                            ? theme.colors.background.tertiary
+                            : theme.colors.background.secondary,
+                          borderColor: schedule.enabled
+                            ? `${theme.colors.accent.primary}55`
+                            : theme.colors.border.primary,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => updateScheduleDay(day.value, { enabled: !schedule.enabled })}
+                          className="flex items-center justify-between rounded-lg px-4 py-3 text-sm font-semibold"
+                          style={{
+                            backgroundColor: schedule.enabled
+                              ? theme.colors.accent.primary
+                              : theme.colors.background.secondary,
+                            color: schedule.enabled ? "#fff" : theme.colors.text.primary,
+                            border: `1px solid ${
+                              schedule.enabled
+                                ? theme.colors.accent.primary
+                                : theme.colors.border.primary
+                            }`,
+                          }}
+                        >
+                          <span>{day.label}</span>
+                          <span>{schedule.enabled ? "사용 중" : "사용 안 함"}</span>
+                        </button>
+
+                        <div>
+                          <label className="mb-2 block text-sm" style={{ color: theme.colors.text.tertiary }}>
+                            시작 시간
+                          </label>
+                          <input
+                            value={schedule.startTime}
+                            onChange={(event) =>
+                              updateScheduleDay(day.value, { startTime: event.target.value })
+                            }
+                            type="time"
+                            disabled={!schedule.enabled}
+                            className="w-full rounded-lg px-3 py-3 disabled:opacity-50"
+                            style={{
+                              backgroundColor: theme.colors.background.secondary,
+                              color: theme.colors.text.primary,
+                              border: `1px solid ${theme.colors.border.primary}`,
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm" style={{ color: theme.colors.text.tertiary }}>
+                            종료 시간
+                          </label>
+                          <input
+                            value={schedule.endTime}
+                            onChange={(event) =>
+                              updateScheduleDay(day.value, { endTime: event.target.value })
+                            }
+                            type="time"
+                            disabled={!schedule.enabled}
+                            className="w-full rounded-lg px-3 py-3 disabled:opacity-50"
+                            style={{
+                              backgroundColor: theme.colors.background.secondary,
+                              color: theme.colors.text.primary,
+                              border: `1px solid ${theme.colors.border.primary}`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                {modalMode === "edit" && selectedClass ? (
                   <button
                     type="button"
-                    onClick={addSchedule}
-                    className="px-3 py-2 rounded-lg text-sm font-medium"
+                    onClick={() => void handleDelete(selectedClass)}
+                    className="rounded-lg px-4 py-3 text-sm font-medium"
                     style={{
-                      backgroundColor: theme.colors.background.tertiary,
+                      backgroundColor: `${theme.colors.status.error}18`,
+                      color: theme.colors.status.error,
+                      border: `1px solid ${theme.colors.status.error}55`,
+                    }}
+                  >
+                    반 삭제
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={resetModal}
+                    className="rounded-lg px-4 py-3 text-sm font-medium"
+                    style={{
+                      backgroundColor: theme.colors.background.secondary,
                       color: theme.colors.text.primary,
                       border: `1px solid ${theme.colors.border.primary}`,
                     }}
                   >
-                    요일 추가
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving || (modalMode === "edit" && isSelectedSchedulesLoading)}
+                    className="rounded-lg px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    style={{
+                      backgroundColor: theme.colors.accent.primary,
+                      color: "#fff",
+                    }}
+                  >
+                    {isSaving ? "저장 중..." : modalMode === "create" ? "반 등록" : "수정 저장"}
                   </button>
                 </div>
-
-                {modalMode === "edit" && isSelectedSchedulesLoading ? (
-                  <p className="mb-3 text-sm" style={{ color: theme.colors.text.tertiary }}>
-                    기존 시간표를 불러오는 중...
-                  </p>
-                ) : null}
-
-                <div className="space-y-3">
-                  {formData.schedules.map((schedule, index) => (
-                    <div
-                      key={`${schedule.dayOfWeek}-${index}`}
-                      className="grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-12"
-                      style={{
-                        backgroundColor: theme.colors.background.tertiary,
-                        borderColor: theme.colors.border.primary,
-                      }}
-                    >
-                      <select
-                        value={schedule.dayOfWeek}
-                        onChange={(event) =>
-                          updateSchedule(index, { dayOfWeek: Number(event.target.value) })
-                        }
-                        className="rounded-lg px-3 py-3 md:col-span-4"
-                        style={{
-                          backgroundColor: theme.colors.background.secondary,
-                          color: theme.colors.text.primary,
-                          border: `1px solid ${theme.colors.border.primary}`,
-                        }}
-                      >
-                        {DAY_OPTIONS.map((day) => (
-                          <option key={day.value} value={day.value}>
-                            {day.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      <input
-                        value={schedule.startTime}
-                        onChange={(event) =>
-                          updateSchedule(index, { startTime: event.target.value })
-                        }
-                        type="time"
-                        className="rounded-lg px-3 py-3 md:col-span-3"
-                        style={{
-                          backgroundColor: theme.colors.background.secondary,
-                          color: theme.colors.text.primary,
-                          border: `1px solid ${theme.colors.border.primary}`,
-                        }}
-                      />
-
-                      <input
-                        value={schedule.endTime}
-                        onChange={(event) =>
-                          updateSchedule(index, { endTime: event.target.value })
-                        }
-                        type="time"
-                        className="rounded-lg px-3 py-3 md:col-span-3"
-                        style={{
-                          backgroundColor: theme.colors.background.secondary,
-                          color: theme.colors.text.primary,
-                          border: `1px solid ${theme.colors.border.primary}`,
-                        }}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => removeSchedule(index)}
-                        disabled={formData.schedules.length === 1}
-                        className="rounded-lg px-3 py-3 text-sm font-medium disabled:opacity-50 md:col-span-2"
-                        style={{
-                          backgroundColor: "rgba(239, 68, 68, 0.12)",
-                          color: "#ef4444",
-                          border: "1px solid rgba(239, 68, 68, 0.35)",
-                        }}
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={resetModal}
-                  className="px-4 py-3 rounded-lg text-sm font-medium"
-                  style={{
-                    backgroundColor: theme.colors.background.secondary,
-                    color: theme.colors.text.primary,
-                    border: `1px solid ${theme.colors.border.primary}`,
-                  }}
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving || (modalMode === "edit" && isSelectedSchedulesLoading)}
-                  className="px-4 py-3 rounded-lg text-sm font-medium disabled:opacity-60"
-                  style={{
-                    backgroundColor: theme.colors.accent.primary,
-                    color: "#fff",
-                  }}
-                >
-                  {isSaving ? "저장 중..." : modalMode === "create" ? "반 등록" : "수정 저장"}
-                </button>
               </div>
             </form>
           </Card>
         </div>
-      )}
+      ) : null}
     </DashboardLayout>
   );
 }

@@ -10,7 +10,7 @@ import {
   getLatestMockExam,
   PARENT_NAV_ITEMS,
 } from "@/lib/portal";
-import { theme } from "@/styles/design-system";
+import { uiThemeVars } from "@/styles/runtime-theme";
 import { useMemo, useState } from "react";
 
 export default function ParentHome() {
@@ -34,7 +34,7 @@ export default function ParentHome() {
 
   if (!selectedSnapshot) {
     return (
-      <PortalLayout title="부모 페이지" subtitle="자녀 학습 현황" navItems={PARENT_NAV_ITEMS}>
+      <PortalLayout title="부모 페이지" subtitle="자녀 학습 현황" navItems={PARENT_NAV_ITEMS} variant="portal-light">
         <Card variant="elevated" padding="lg">
           <EmptyState
             title="연결된 학생이 없습니다."
@@ -49,9 +49,14 @@ export default function ParentHome() {
   const todayStatusMeta = getCommuteStatusMeta(selectedSnapshot.commute.todayStatus);
 
   return (
-    <PortalLayout title="부모 페이지" subtitle="자녀 학습 현황" navItems={PARENT_NAV_ITEMS}>
+    <PortalLayout
+      title="부모 페이지"
+      subtitle="자녀의 학습, 공지, 등하원 기록을 한 화면에서 확인하세요."
+      navItems={PARENT_NAV_ITEMS}
+      variant="portal-light"
+    >
       <div className="space-y-6">
-        {snapshots.length > 1 && (
+        {snapshots.length > 1 ? (
           <Card variant="elevated" padding="md">
             <div className="flex flex-wrap gap-2">
               {snapshots.map((snapshot: any) => {
@@ -62,13 +67,9 @@ export default function ParentHome() {
                     onClick={() => setSelectedStudentId(snapshot.student.id)}
                     className="rounded-full px-4 py-2 text-sm font-medium"
                     style={{
-                      backgroundColor: isActive
-                        ? theme.colors.accent.primary
-                        : theme.colors.background.secondary,
-                      color: theme.colors.text.primary,
-                      border: `1px solid ${
-                        isActive ? theme.colors.accent.primary : theme.colors.border.primary
-                      }`,
+                      backgroundColor: isActive ? uiThemeVars.accentPrimary : uiThemeVars.surfaceAlt,
+                      color: isActive ? "#fff" : uiThemeVars.textPrimary,
+                      border: `1px solid ${isActive ? uiThemeVars.accentPrimary : uiThemeVars.borderPrimary}`,
                     }}
                   >
                     {snapshot.student.name}
@@ -77,7 +78,7 @@ export default function ParentHome() {
               })}
             </div>
           </Card>
-        )}
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <StatCard label="오늘 상태" value={todayStatusMeta.label} color="success" />
@@ -87,69 +88,77 @@ export default function ParentHome() {
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Card variant="elevated" padding="lg" className="lg:col-span-2">
-            <div className="mb-4 flex items-center justify-between">
+          <Card
+            variant="elevated"
+            padding="lg"
+            className="lg:col-span-2"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(124, 58, 237, 0.10) 0%, rgba(37, 99, 235, 0.08) 58%, rgba(45, 212, 191, 0.10) 100%)",
+            }}
+          >
+            <div className="mb-4 flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold" style={{ color: theme.colors.text.primary }}>
+                <Badge variant="info" size="sm">
+                  보호자 연결 중
+                </Badge>
+                <h2 className="mt-3 text-2xl font-semibold" style={{ color: uiThemeVars.textPrimary }}>
                   {selectedSnapshot.student.name}
                 </h2>
-                <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                <p className="mt-1 text-sm" style={{ color: uiThemeVars.textSecondary }}>
                   {selectedSnapshot.student.email || "이메일 없음"} · {selectedSnapshot.student.phone || "전화번호 없음"}
                 </p>
               </div>
-              <Badge variant="info" size="sm">
-                보호자 연결 중
-              </Badge>
             </div>
 
             <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
               <div>
-                <p style={{ color: theme.colors.text.tertiary }}>보호자명</p>
-                <p style={{ color: theme.colors.text.primary }}>{selectedSnapshot.student.parentName || "-"}</p>
+                <p style={{ color: uiThemeVars.textTertiary }}>보호자명</p>
+                <p style={{ color: uiThemeVars.textPrimary }}>{selectedSnapshot.student.parentName || "-"}</p>
               </div>
               <div>
-                <p style={{ color: theme.colors.text.tertiary }}>보호자 연락처</p>
-                <p style={{ color: theme.colors.text.primary }}>{selectedSnapshot.student.parentPhone || "-"}</p>
+                <p style={{ color: uiThemeVars.textTertiary }}>보호자 연락처</p>
+                <p style={{ color: uiThemeVars.textPrimary }}>{selectedSnapshot.student.parentPhone || "-"}</p>
               </div>
               <div>
-                <p style={{ color: theme.colors.text.tertiary }}>최근 등원</p>
-                <p style={{ color: theme.colors.text.primary }}>{formatTime(selectedSnapshot.commute.latestCheckInAt)}</p>
+                <p style={{ color: uiThemeVars.textTertiary }}>최근 등원</p>
+                <p style={{ color: uiThemeVars.textPrimary }}>{formatTime(selectedSnapshot.commute.latestCheckInAt)}</p>
               </div>
               <div>
-                <p style={{ color: theme.colors.text.tertiary }}>최근 하원</p>
-                <p style={{ color: theme.colors.text.primary }}>{formatTime(selectedSnapshot.commute.latestCheckOutAt)}</p>
+                <p style={{ color: uiThemeVars.textTertiary }}>최근 하원</p>
+                <p style={{ color: uiThemeVars.textPrimary }}>{formatTime(selectedSnapshot.commute.latestCheckOutAt)}</p>
               </div>
             </div>
           </Card>
 
           <Card variant="elevated" padding="lg">
-            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
               성적 요약
             </h2>
             {latestMockExam ? (
               <div className="space-y-3">
-                <p style={{ color: theme.colors.text.primary }}>
+                <p style={{ color: uiThemeVars.textPrimary }}>
                   최근 모의고사: {latestMockExam.mockExamMonth}월
                 </p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm" style={{ color: uiThemeVars.textSecondary }}>
                   <div>국어 {latestMockExam.korean ?? "-"}</div>
                   <div>영어 {latestMockExam.english ?? "-"}</div>
                   <div>수학 {latestMockExam.math ?? "-"}</div>
                   <div>과학 {latestMockExam.science ?? "-"}</div>
                 </div>
-                <p style={{ color: theme.colors.text.tertiary }}>
+                <p style={{ color: uiThemeVars.textTertiary }}>
                   내신 등급: {selectedSnapshot.grades.latestSchoolGrade?.schoolGrade ?? "-"}
                 </p>
               </div>
             ) : (
-              <p style={{ color: theme.colors.text.tertiary }}>등록된 성적이 없습니다.</p>
+              <p style={{ color: uiThemeVars.textTertiary }}>등록된 성적이 없습니다.</p>
             )}
           </Card>
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card variant="elevated" padding="lg">
-            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
               최근 출결
             </h2>
             <div className="space-y-3">
@@ -158,13 +167,13 @@ export default function ParentHome() {
                 return (
                   <div
                     key={record.id}
-                    className="rounded-lg p-3"
-                    style={{ backgroundColor: theme.colors.background.secondary }}
+                    className="rounded-2xl p-3"
+                    style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p style={{ color: theme.colors.text.primary }}>{formatDate(record.commuteDate)}</p>
-                        <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
+                        <p style={{ color: uiThemeVars.textPrimary }}>{formatDate(record.commuteDate)}</p>
+                        <p className="text-sm" style={{ color: uiThemeVars.textTertiary }}>
                           등원 {formatTime(record.checkInAt)} / 하원 {formatTime(record.checkOutAt)}
                         </p>
                       </div>
@@ -175,57 +184,57 @@ export default function ParentHome() {
                   </div>
                 );
               })}
-              {selectedSnapshot.commute.records.length === 0 && (
-                <p style={{ color: theme.colors.text.tertiary }}>아직 출결 기록이 없습니다.</p>
-              )}
+              {selectedSnapshot.commute.records.length === 0 ? (
+                <p style={{ color: uiThemeVars.textTertiary }}>아직 출결 기록이 없습니다.</p>
+              ) : null}
             </div>
           </Card>
 
           <Card variant="elevated" padding="lg">
-            <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+            <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
               최근 공지
             </h2>
             <div className="space-y-3">
               {selectedSnapshot.notices.slice(0, 5).map((notice: any) => (
                 <div
                   key={notice.id}
-                  className="rounded-lg p-3"
-                  style={{ backgroundColor: theme.colors.background.secondary }}
+                  className="rounded-2xl p-3"
+                  style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                 >
-                  <p className="font-medium" style={{ color: theme.colors.text.primary }}>
+                  <p className="font-medium" style={{ color: uiThemeVars.textPrimary }}>
                     {notice.title}
                   </p>
-                  <p className="mt-1 text-sm" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mt-1 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     {notice.content}
                   </p>
                 </div>
               ))}
-              {selectedSnapshot.notices.length === 0 && (
-                <p style={{ color: theme.colors.text.tertiary }}>확인할 공지가 없습니다.</p>
-              )}
+              {selectedSnapshot.notices.length === 0 ? (
+                <p style={{ color: uiThemeVars.textTertiary }}>확인할 공지가 없습니다.</p>
+              ) : null}
             </div>
           </Card>
         </div>
 
         <Card variant="elevated" padding="lg">
-          <h2 className="mb-4 text-lg font-semibold" style={{ color: theme.colors.text.primary }}>
+          <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
             수납 현황
           </h2>
           <div className="space-y-3">
             {selectedSnapshot.payments.slice(0, 6).map((payment: any) => (
               <div
                 key={payment.id}
-                className="flex items-center justify-between rounded-lg p-3"
-                style={{ backgroundColor: theme.colors.background.secondary }}
+                className="flex items-center justify-between rounded-2xl p-3"
+                style={{ backgroundColor: uiThemeVars.surfaceAlt }}
               >
                 <div>
-                  <p style={{ color: theme.colors.text.primary }}>{payment.month}</p>
-                  <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
+                  <p style={{ color: uiThemeVars.textPrimary }}>{payment.month}</p>
+                  <p className="text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     납부기한 {formatDate(payment.dueDate)}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p style={{ color: theme.colors.text.primary }}>{formatCurrency(payment.amount)}</p>
+                  <p style={{ color: uiThemeVars.textPrimary }}>{formatCurrency(payment.amount)}</p>
                   <Badge
                     size="sm"
                     variant={
@@ -245,9 +254,9 @@ export default function ParentHome() {
                 </div>
               </div>
             ))}
-            {selectedSnapshot.payments.length === 0 && (
-              <p style={{ color: theme.colors.text.tertiary }}>등록된 수납 정보가 없습니다.</p>
-            )}
+            {selectedSnapshot.payments.length === 0 ? (
+              <p style={{ color: uiThemeVars.textTertiary }}>등록된 수납 정보가 없습니다.</p>
+            ) : null}
           </div>
         </Card>
       </div>

@@ -2,13 +2,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import PortalLayout from "@/components/PortalLayout";
 import { Badge, Card, EmptyState, Input } from "@/components/common/CommonComponents";
 import { useLinkedPortalData } from "@/hooks/useLinkedPortalData";
-import {
-  STUDENT_NAV_ITEMS,
-  formatCurrency,
-  formatDate,
-} from "@/lib/portal";
+import { STUDENT_NAV_ITEMS, formatCurrency, formatDate } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
-import { theme } from "@/styles/design-system";
+import { uiThemeVars } from "@/styles/runtime-theme";
 import { useEffect, useMemo, useState } from "react";
 
 type ProfileForm = {
@@ -76,11 +72,7 @@ export default function StudentProfile() {
 
   if (!snapshot) {
     return (
-      <PortalLayout
-        title="프로필"
-        subtitle="내 정보"
-        navItems={STUDENT_NAV_ITEMS}
-      >
+      <PortalLayout title="프로필" subtitle="내 정보" navItems={STUDENT_NAV_ITEMS} variant="portal-light">
         <Card variant="elevated" padding="lg">
           <EmptyState title="프로필 데이터를 불러올 수 없습니다" />
         </Card>
@@ -101,52 +93,36 @@ export default function StudentProfile() {
   };
 
   return (
-    <PortalLayout
-      title="프로필"
-      subtitle="내 정보"
-      navItems={STUDENT_NAV_ITEMS}
-    >
+    <PortalLayout title="프로필" subtitle="내 정보를 관리하세요." navItems={STUDENT_NAV_ITEMS} variant="portal-light">
       <div className="space-y-6">
-        <div
-          className="flex gap-2 p-2 rounded-lg"
-          style={{ backgroundColor: theme.colors.background.secondary }}
-        >
+        <div className="flex gap-2 rounded-2xl p-2" style={{ backgroundColor: uiThemeVars.surface }}>
           <button
             onClick={() => setActiveTab("profile")}
-            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium"
+            className="flex-1 rounded-xl px-4 py-2 text-sm font-medium"
             style={{
-              backgroundColor:
-                activeTab === "profile"
-                  ? theme.colors.accent.primary
-                  : "transparent",
-              color: theme.colors.text.primary,
+              backgroundColor: activeTab === "profile" ? uiThemeVars.accentPrimary : "transparent",
+              color: activeTab === "profile" ? "#fff" : uiThemeVars.textPrimary,
             }}
           >
             기본 정보
           </button>
           <button
             onClick={() => setActiveTab("grades")}
-            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium"
+            className="flex-1 rounded-xl px-4 py-2 text-sm font-medium"
             style={{
-              backgroundColor:
-                activeTab === "grades"
-                  ? theme.colors.accent.primary
-                  : "transparent",
-              color: theme.colors.text.primary,
+              backgroundColor: activeTab === "grades" ? uiThemeVars.accentPrimary : "transparent",
+              color: activeTab === "grades" ? "#fff" : uiThemeVars.textPrimary,
             }}
           >
             성적 / 수납
           </button>
         </div>
 
-        {activeTab === "profile" && (
+        {activeTab === "profile" ? (
           <div className="space-y-6">
             <Card variant="elevated" padding="lg">
-              <div className="flex items-center justify-between mb-4">
-                <h2
-                  className="text-lg font-semibold"
-                  style={{ color: theme.colors.text.primary }}
-                >
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
                   학생 기본 정보
                 </h2>
                 <div className="flex gap-2">
@@ -154,9 +130,9 @@ export default function StudentProfile() {
                     <>
                       <button
                         onClick={handleSave}
-                        className="px-4 py-2 rounded-lg text-sm font-medium"
+                        className="rounded-lg px-4 py-2 text-sm font-medium"
                         style={{
-                          backgroundColor: theme.colors.accent.primary,
+                          backgroundColor: uiThemeVars.accentPrimary,
                           color: "#fff",
                         }}
                       >
@@ -175,11 +151,11 @@ export default function StudentProfile() {
                             notes: snapshot.student.notes || "",
                           });
                         }}
-                        className="px-4 py-2 rounded-lg text-sm font-medium"
+                        className="rounded-lg px-4 py-2 text-sm font-medium"
                         style={{
-                          backgroundColor: theme.colors.background.secondary,
-                          color: theme.colors.text.primary,
-                          border: `1px solid ${theme.colors.border.primary}`,
+                          backgroundColor: uiThemeVars.surfaceAlt,
+                          color: uiThemeVars.textPrimary,
+                          border: `1px solid ${uiThemeVars.borderPrimary}`,
                         }}
                       >
                         취소
@@ -188,11 +164,11 @@ export default function StudentProfile() {
                   ) : (
                     <button
                       onClick={() => setIsEditing(true)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium"
+                      className="rounded-lg px-4 py-2 text-sm font-medium"
                       style={{
-                        backgroundColor: theme.colors.background.secondary,
-                        color: theme.colors.text.primary,
-                        border: `1px solid ${theme.colors.border.primary}`,
+                        backgroundColor: uiThemeVars.surfaceAlt,
+                        color: uiThemeVars.textPrimary,
+                        border: `1px solid ${uiThemeVars.borderPrimary}`,
                       }}
                     >
                       수정
@@ -201,35 +177,35 @@ export default function StudentProfile() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     이름
                   </p>
                   {isEditing ? (
                     <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>{snapshot.student.name}</p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.name}</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     이메일
                   </p>
-                  <p style={{ color: theme.colors.text.primary }}>{snapshot.student.email || "-"}</p>
+                  <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.email || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     휴대전화
                   </p>
                   {isEditing ? (
                     <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>{snapshot.student.phone || "-"}</p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.phone || "-"}</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     생년월일
                   </p>
                   {isEditing ? (
@@ -239,23 +215,21 @@ export default function StudentProfile() {
                       onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
                     />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>
-                      {formatDate(snapshot.student.dateOfBirth)}
-                    </p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{formatDate(snapshot.student.dateOfBirth)}</p>
                   )}
                 </div>
                 <div className="md:col-span-2">
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     주소
                   </p>
                   {isEditing ? (
                     <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>{snapshot.student.address || "-"}</p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.address || "-"}</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     보호자 이름
                   </p>
                   {isEditing ? (
@@ -264,11 +238,11 @@ export default function StudentProfile() {
                       onChange={(e) => setForm({ ...form, parentName: e.target.value })}
                     />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>{snapshot.student.parentName || "-"}</p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.parentName || "-"}</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     보호자 연락처
                   </p>
                   {isEditing ? (
@@ -277,51 +251,45 @@ export default function StudentProfile() {
                       onChange={(e) => setForm({ ...form, parentPhone: e.target.value })}
                     />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>{snapshot.student.parentPhone || "-"}</p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.parentPhone || "-"}</p>
                   )}
                 </div>
                 <div className="md:col-span-2">
-                  <p className="text-sm mb-2" style={{ color: theme.colors.text.tertiary }}>
+                  <p className="mb-2 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                     메모
                   </p>
                   {isEditing ? (
                     <textarea
                       value={form.notes}
                       onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                      className="w-full min-h-28 rounded-lg p-3"
+                      className="min-h-28 w-full rounded-lg p-3"
                       style={{
-                        backgroundColor: theme.colors.background.secondary,
-                        color: theme.colors.text.primary,
-                        border: `1px solid ${theme.colors.border.primary}`,
+                        backgroundColor: uiThemeVars.surfaceAlt,
+                        color: uiThemeVars.textPrimary,
+                        border: `1px solid ${uiThemeVars.borderPrimary}`,
                       }}
                     />
                   ) : (
-                    <p style={{ color: theme.colors.text.primary }}>{snapshot.student.notes || "-"}</p>
+                    <p style={{ color: uiThemeVars.textPrimary }}>{snapshot.student.notes || "-"}</p>
                   )}
                 </div>
               </div>
             </Card>
 
             <Card variant="elevated" padding="lg">
-              <h2
-                className="text-lg font-semibold mb-4"
-                style={{ color: theme.colors.text.primary }}
-              >
+              <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
                 수강 중인 반
               </h2>
               <div className="space-y-3">
                 {snapshot.classes.map((item: any) => (
                   <div
                     key={item.id}
-                    className="p-4 rounded-lg flex items-center justify-between"
-                    style={{ backgroundColor: theme.colors.background.secondary }}
+                    className="flex items-center justify-between rounded-2xl p-4"
+                    style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                   >
                     <div>
-                      <p style={{ color: theme.colors.text.primary }}>{item.name}</p>
-                      <p
-                        className="text-sm mt-1"
-                        style={{ color: theme.colors.text.tertiary }}
-                      >
+                      <p style={{ color: uiThemeVars.textPrimary }}>{item.name}</p>
+                      <p className="mt-1 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                         {item.subject} · {item.teacherName || "강사 미지정"}
                       </p>
                     </div>
@@ -330,47 +298,35 @@ export default function StudentProfile() {
                     </Badge>
                   </div>
                 ))}
-                {snapshot.classes.length === 0 && (
-                  <p style={{ color: theme.colors.text.tertiary }}>
-                    수강 중인 반이 없습니다.
-                  </p>
-                )}
+                {snapshot.classes.length === 0 ? (
+                  <p style={{ color: uiThemeVars.textTertiary }}>수강 중인 반이 없습니다.</p>
+                ) : null}
               </div>
             </Card>
           </div>
-        )}
-
-        {activeTab === "grades" && (
+        ) : (
           <div className="space-y-6">
             <Card variant="elevated" padding="lg">
-              <h2
-                className="text-lg font-semibold mb-4"
-                style={{ color: theme.colors.text.primary }}
-              >
+              <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
                 성적 요약
               </h2>
-              <div className="flex items-center gap-3 mb-4">
+              <div className="mb-4 flex items-center gap-3">
                 <Badge variant="info" size="sm">
                   최근 내신
                 </Badge>
-                <p style={{ color: theme.colors.text.primary }}>
-                  {latestSchoolGrade?.schoolGrade ?? "-"}등급
-                </p>
+                <p style={{ color: uiThemeVars.textPrimary }}>{latestSchoolGrade?.schoolGrade ?? "-"}등급</p>
               </div>
               <div className="space-y-3">
                 {mockExams.map((exam: any) => (
                   <div
                     key={exam.id}
-                    className="p-4 rounded-lg"
-                    style={{ backgroundColor: theme.colors.background.secondary }}
+                    className="rounded-2xl p-4"
+                    style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                   >
-                    <p
-                      className="font-medium mb-3"
-                      style={{ color: theme.colors.text.primary }}
-                    >
+                    <p className="mb-3 font-medium" style={{ color: uiThemeVars.textPrimary }}>
                       {exam.mockExamMonth}월 모의고사
                     </p>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                    <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-5" style={{ color: uiThemeVars.textSecondary }}>
                       <div>국어 {exam.korean ?? "-"}</div>
                       <div>영어 {exam.english ?? "-"}</div>
                       <div>수학 {exam.math ?? "-"}</div>
@@ -379,65 +335,53 @@ export default function StudentProfile() {
                     </div>
                   </div>
                 ))}
-                {mockExams.length === 0 && (
-                  <p style={{ color: theme.colors.text.tertiary }}>
-                    등록된 모의고사 성적이 없습니다.
-                  </p>
-                )}
+                {mockExams.length === 0 ? (
+                  <p style={{ color: uiThemeVars.textTertiary }}>등록된 모의고사 성적이 없습니다.</p>
+                ) : null}
               </div>
             </Card>
 
             <Card variant="elevated" padding="lg">
-              <h2
-                className="text-lg font-semibold mb-4"
-                style={{ color: theme.colors.text.primary }}
-              >
+              <h2 className="mb-4 text-lg font-semibold" style={{ color: uiThemeVars.textPrimary }}>
                 수납 현황
               </h2>
               <div className="space-y-3">
                 {snapshot.payments.map((payment: any) => (
                   <div
                     key={payment.id}
-                    className="p-4 rounded-lg flex items-center justify-between"
-                    style={{ backgroundColor: theme.colors.background.secondary }}
+                    className="flex items-center justify-between rounded-2xl p-4"
+                    style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                   >
                     <div>
-                      <p style={{ color: theme.colors.text.primary }}>{payment.month}</p>
-                      <p
-                        className="text-sm mt-1"
-                        style={{ color: theme.colors.text.tertiary }}
-                      >
+                      <p style={{ color: uiThemeVars.textPrimary }}>{payment.month}</p>
+                      <p className="mt-1 text-sm" style={{ color: uiThemeVars.textTertiary }}>
                         납부기한 {formatDate(payment.dueDate)}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p style={{ color: theme.colors.text.primary }}>
-                        {formatCurrency(payment.amount)}
-                      </p>
+                      <p style={{ color: uiThemeVars.textPrimary }}>{formatCurrency(payment.amount)}</p>
                       <Badge
                         size="sm"
                         variant={
                           payment.status === "paid"
                             ? "success"
                             : payment.status === "overdue"
-                            ? "error"
-                            : "warning"
+                              ? "error"
+                              : "warning"
                         }
                       >
                         {payment.status === "paid"
                           ? "납부 완료"
                           : payment.status === "overdue"
-                          ? "미납"
-                          : "대기"}
+                            ? "미납"
+                            : "대기"}
                       </Badge>
                     </div>
                   </div>
                 ))}
-                {snapshot.payments.length === 0 && (
-                  <p style={{ color: theme.colors.text.tertiary }}>
-                    등록된 수납 정보가 없습니다.
-                  </p>
-                )}
+                {snapshot.payments.length === 0 ? (
+                  <p style={{ color: uiThemeVars.textTertiary }}>등록된 수납 정보가 없습니다.</p>
+                ) : null}
               </div>
             </Card>
           </div>

@@ -1,12 +1,13 @@
-import React from 'react';
-import { theme } from '@/styles/design-system';
+import React from "react";
+import { theme } from "@/styles/design-system";
+import { uiThemeVars } from "@/styles/runtime-theme";
 
 function parseStyleString(str: string | undefined) {
   if (!str) return {};
   const style: Record<string, string> = {};
-  const declarations = str.split(';').filter(d => d.trim());
-  declarations.forEach(decl => {
-    const [prop, value] = decl.split(':');
+  const declarations = str.split(";").filter((d) => d.trim());
+  declarations.forEach((decl) => {
+    const [prop, value] = decl.split(":");
     if (prop && value) {
       const camelCase = prop.trim().replace(/-([a-z])/g, (g) => g[1].toUpperCase());
       style[camelCase] = value.trim();
@@ -15,17 +16,13 @@ function parseStyleString(str: string | undefined) {
   return style;
 }
 
-// ============================================================================
-// Card Component
-// ============================================================================
-
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: 'default' | 'elevated' | 'glass';
-  padding?: 'sm' | 'md' | 'lg';
+  variant?: "default" | "elevated" | "glass";
+  padding?: "sm" | "md" | "lg";
 }
 
 export const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ variant = 'default', padding = 'md', className = '', children, ...props }, ref) => {
+  ({ variant = "default", padding = "md", className = "", children, style, ...props }, ref) => {
     const paddingMap = {
       sm: theme.spacing.md,
       md: theme.spacing.lg,
@@ -34,13 +31,13 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
 
     const variantStyles = {
       default: `
-        background-color: ${theme.colors.background.tertiary};
-        border: 1px solid ${theme.colors.border.secondary};
+        background-color: ${uiThemeVars.surface};
+        border: 1px solid ${uiThemeVars.borderSecondary};
         box-shadow: ${theme.shadows.elevation.sm};
       `,
       elevated: `
-        background-color: ${theme.colors.background.tertiary};
-        border: 1px solid ${theme.colors.border.primary};
+        background-color: ${uiThemeVars.surface};
+        border: 1px solid ${uiThemeVars.borderPrimary};
         box-shadow: ${theme.shadows.elevation.lg};
       `,
       glass: `
@@ -57,34 +54,31 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
         style={{
           ...parseStyleString(variantStyles[variant]),
           padding: paddingMap[padding],
+          ...(style as React.CSSProperties),
         } as React.CSSProperties}
         {...(props as any)}
       >
         {children}
       </div>
     );
-  }
+  },
 );
 
-Card.displayName = 'Card';
-
-// ============================================================================
-// Badge Component
-// ============================================================================
+Card.displayName = "Card";
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'success' | 'error' | 'warning' | 'info';
-  size?: 'sm' | 'md' | 'lg';
+  variant?: "default" | "success" | "error" | "warning" | "info";
+  size?: "sm" | "md" | "lg";
 }
 
 export const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ variant = 'default', size = 'md', className = '', children, ...props }, ref) => {
+  ({ variant = "default", size = "md", className = "", children, style, ...props }, ref) => {
     const variantStyles: Record<string, string> = {
-      default: `backgroundColor: ${theme.colors.background.tertiary}; color: ${theme.colors.text.primary}; border: 1px solid ${theme.colors.border.primary};`,
-      success: `backgroundColor: ${theme.colors.status.success}20; color: ${theme.colors.status.success}; border: 1px solid ${theme.colors.status.success}40;`,
-      error: `backgroundColor: ${theme.colors.status.error}20; color: ${theme.colors.status.error}; border: 1px solid ${theme.colors.status.error}40;`,
-      warning: `backgroundColor: ${theme.colors.status.warning}20; color: ${theme.colors.status.warning}; border: 1px solid ${theme.colors.status.warning}40;`,
-      info: `backgroundColor: ${theme.colors.status.info}20; color: ${theme.colors.status.info}; border: 1px solid ${theme.colors.status.info}40;`,
+      default: `background-color: ${uiThemeVars.surfaceAlt}; color: ${uiThemeVars.textPrimary}; border: 1px solid ${uiThemeVars.borderPrimary};`,
+      success: `background-color: ${theme.colors.status.success}20; color: ${theme.colors.status.success}; border: 1px solid ${theme.colors.status.success}40;`,
+      error: `background-color: ${theme.colors.status.error}20; color: ${theme.colors.status.error}; border: 1px solid ${theme.colors.status.error}40;`,
+      warning: `background-color: ${theme.colors.status.warning}20; color: ${theme.colors.status.warning}; border: 1px solid ${theme.colors.status.warning}40;`,
+      info: `background-color: ${theme.colors.status.info}20; color: ${theme.colors.status.info}; border: 1px solid ${theme.colors.status.info}40;`,
     };
 
     const sizeMap = {
@@ -93,40 +87,35 @@ export const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
       lg: `padding: ${theme.spacing.md} ${theme.spacing.lg}; font-size: 14px;`,
     };
 
-    const variantStyle = variantStyles[variant];
-    const sizeStyle = sizeMap[size];
-    
     return (
       <span
         ref={ref}
         className={`inline-flex items-center rounded-full font-medium whitespace-nowrap ${className}`}
         style={{
-          ...parseStyleString(variantStyle),
-          ...parseStyleString(sizeStyle),
+          ...parseStyleString(variantStyles[variant]),
+          ...parseStyleString(sizeMap[size]),
+          ...(style as React.CSSProperties),
         } as React.CSSProperties}
         {...(props as any)}
       >
         {children}
       </span>
     );
-  }
+  },
 );
 
-Badge.displayName = 'Badge';
+Badge.displayName = "Badge";
 
-// ============================================================================
-// Input Component
-// ============================================================================
-
-interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
-  size?: 'sm' | 'md' | 'lg';
+interface InputProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> {
+  size?: "sm" | "md" | "lg";
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
   error?: string;
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ size = 'md', leftIcon, rightIcon, error, className = '', ...props }, ref) => {
+  ({ size = "md", leftIcon, rightIcon, error, className = "", style, ...props }, ref) => {
     const sizeMap = {
       sm: theme.sizes.input.sm,
       md: theme.sizes.input.md,
@@ -138,61 +127,48 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full">
         <div className="relative flex items-center">
-          {leftIcon && (
-            <span className="absolute left-3 text-gray-400">{leftIcon}</span>
-          )}
+          {leftIcon ? <span className="absolute left-3 text-gray-400">{leftIcon}</span> : null}
           <input
             ref={ref}
             className={`
               w-full rounded-lg transition-all duration-200
-              bg-${theme.colors.background.tertiary}
-              text-${theme.colors.text.primary}
-              border border-${theme.colors.border.secondary}
-              focus:border-${theme.colors.accent.primary}
               focus:outline-none
-              placeholder-${theme.colors.text.tertiary}
               disabled:opacity-50 disabled:cursor-not-allowed
-              ${leftIcon ? 'pl-10' : ''}
-              ${rightIcon ? 'pr-10' : ''}
-              ${error ? 'border-red-500' : ''}
+              ${leftIcon ? "pl-10" : ""}
+              ${rightIcon ? "pr-10" : ""}
               ${className}
             `}
             style={{
               height: inputSize.height,
               padding: inputSize.padding,
               fontSize: inputSize.fontSize,
-              backgroundColor: theme.colors.background.tertiary,
-              color: theme.colors.text.primary,
-              borderColor: error ? theme.colors.status.error : theme.colors.border.secondary,
-            } as any}
+              backgroundColor: uiThemeVars.surfaceAlt,
+              color: uiThemeVars.textPrimary,
+              borderColor: error ? theme.colors.status.error : uiThemeVars.borderSecondary,
+              borderWidth: "1px",
+              borderStyle: "solid",
+              ...(style as React.CSSProperties),
+            } as React.CSSProperties}
             {...props}
           />
-          {rightIcon && (
-            <span className="absolute right-3 text-gray-400">{rightIcon}</span>
-          )}
+          {rightIcon ? <span className="absolute right-3 text-gray-400">{rightIcon}</span> : null}
         </div>
-        {error && (
-          <p
-            className="mt-1 text-sm"
-            style={{ color: theme.colors.status.error }}
-          >
+        {error ? (
+          <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
             {error}
           </p>
-        )}
+        ) : null}
       </div>
     );
-  }
+  },
 );
 
-Input.displayName = 'Input';
+Input.displayName = "Input";
 
-// ============================================================================
-// SearchBar Component
-// ============================================================================
-
-interface SearchBarProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
+interface SearchBarProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> {
   onSearch?: (value: string) => void;
-  size?: 'sm' | 'md' | 'lg';
+  size?: "sm" | "md" | "lg";
 }
 
 export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
@@ -206,75 +182,58 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
       <Input
         ref={ref}
         type="search"
-        placeholder="검색..."
+        placeholder="검색.."
         onChange={handleChange}
         leftIcon="🔍"
         {...(props as any)}
       />
     );
-  }
+  },
 );
 
-SearchBar.displayName = 'SearchBar';
-
-// ============================================================================
-// StatCard Component (KPI 카드)
-// ============================================================================
+SearchBar.displayName = "SearchBar";
 
 interface StatCardProps {
   label: string;
   value: string | number;
   icon?: React.ReactNode;
-  color?: 'default' | 'success' | 'error' | 'warning' | 'info';
+  color?: "default" | "success" | "error" | "warning" | "info";
 }
 
 export const StatCard: React.FC<StatCardProps> = ({
   label,
   value,
   icon,
-  color = 'default',
+  color = "default",
 }) => {
   const colorMap = {
-    default: theme.colors.accent.primary,
-    success: theme.colors.status.success,
-    error: theme.colors.status.error,
-    warning: theme.colors.status.warning,
-    info: theme.colors.status.info,
+    default: uiThemeVars.accentPrimary,
+    success: uiThemeVars.success,
+    error: uiThemeVars.error,
+    warning: uiThemeVars.warning,
+    info: uiThemeVars.info,
   };
 
   return (
     <Card variant="elevated" padding="lg">
       <div className="flex items-start justify-between">
         <div>
-          <p
-            className="text-sm font-medium"
-            style={{ color: theme.colors.text.tertiary }}
-          >
+          <p className="text-sm font-medium" style={{ color: uiThemeVars.textTertiary }}>
             {label}
           </p>
-          <p
-            className="mt-2 text-3xl font-bold"
-            style={{ color: colorMap[color] }}
-          >
+          <p className="mt-2 text-3xl font-bold" style={{ color: colorMap[color] }}>
             {value}
           </p>
         </div>
-        {icon && (
-          <div
-            className="text-2xl"
-            style={{ color: colorMap[color] }}
-          >
+        {icon ? (
+          <div className="text-2xl" style={{ color: colorMap[color] }}>
             {icon}
           </div>
-        )}
+        ) : null}
       </div>
     </Card>
   );
 };
-
-// ============================================================================
-// ListItem Component
-// ============================================================================
 
 interface ListItemProps extends React.HTMLAttributes<HTMLDivElement> {
   avatar?: React.ReactNode;
@@ -285,7 +244,7 @@ interface ListItemProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export const ListItem = React.forwardRef<HTMLDivElement, ListItemProps>(
-  ({ avatar, title, subtitle, rightContent, onClick, className = '', ...props }, ref) => {
+  ({ avatar, title, subtitle, rightContent, onClick, className = "", style, ...props }, ref) => {
     return (
       <div
         ref={ref}
@@ -296,39 +255,30 @@ export const ListItem = React.forwardRef<HTMLDivElement, ListItemProps>(
           hover:bg-opacity-80 ${className}
         `}
         style={{
-          backgroundColor: theme.colors.background.tertiary,
-          borderColor: theme.colors.border.secondary,
+          backgroundColor: uiThemeVars.surface,
+          borderColor: uiThemeVars.borderSecondary,
+          ...(style as React.CSSProperties),
         } as React.CSSProperties}
         {...(props as any)}
       >
-        {avatar && <div className="flex-shrink-0">{avatar}</div>}
+        {avatar ? <div className="flex-shrink-0">{avatar}</div> : null}
         <div className="flex-1 min-w-0">
-          <p
-            className="font-medium truncate"
-            style={{ color: theme.colors.text.primary }}
-          >
+          <p className="font-medium truncate" style={{ color: uiThemeVars.textPrimary }}>
             {title}
           </p>
-          {subtitle && (
-            <p
-              className="text-sm truncate"
-              style={{ color: theme.colors.text.tertiary }}
-            >
+          {subtitle ? (
+            <p className="text-sm truncate" style={{ color: uiThemeVars.textTertiary }}>
               {subtitle}
             </p>
-          )}
+          ) : null}
         </div>
-        {rightContent && <div className="flex-shrink-0">{rightContent}</div>}
+        {rightContent ? <div className="flex-shrink-0">{rightContent}</div> : null}
       </div>
     );
-  }
+  },
 );
 
-ListItem.displayName = 'ListItem';
-
-// ============================================================================
-// EmptyState Component
-// ============================================================================
+ListItem.displayName = "ListItem";
 
 interface EmptyStateProps {
   icon?: React.ReactNode;
@@ -345,22 +295,16 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => {
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4">
-      {icon && <div className="text-4xl mb-4">{icon}</div>}
-      <h3
-        className="text-lg font-semibold mb-2"
-        style={{ color: theme.colors.text.primary }}
-      >
+      {icon ? <div className="text-4xl mb-4">{icon}</div> : null}
+      <h3 className="text-lg font-semibold mb-2" style={{ color: uiThemeVars.textPrimary }}>
         {title}
       </h3>
-      {description && (
-        <p
-          className="text-sm text-center mb-6"
-          style={{ color: theme.colors.text.tertiary }}
-        >
+      {description ? (
+        <p className="text-sm text-center mb-6" style={{ color: uiThemeVars.textTertiary }}>
           {description}
         </p>
-      )}
-      {action && <div>{action}</div>}
+      ) : null}
+      {action ? <div>{action}</div> : null}
     </div>
   );
 };

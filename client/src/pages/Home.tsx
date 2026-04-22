@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import Button from "@/components/common/Button";
 import { Card } from "@/components/common/CommonComponents";
 import { Link } from "wouter";
@@ -13,32 +13,32 @@ export default function Home() {
     {
       icon: "📚",
       title: "통합 학생 관리",
-      description: "학생 정보, 반 배치, 출석 관리를 한 곳에서 효율적으로 관리합니다",
+      description: "학생 정보, 반 배치, 등하원 기록까지 한 화면에서 운영할 수 있습니다.",
     },
     {
-      icon: "📅",
-      title: "시간표 관리",
-      description: "수업 시간표를 쉽게 등록하고 학생들과 공유합니다",
+      icon: "🗓️",
+      title: "요일별 시간표 관리",
+      description: "반마다 월~일 수업 요일을 선택하고 각 요일마다 다른 수업 시간을 저장합니다.",
     },
     {
-      icon: "✅",
-      title: "출석 관리",
-      description: "실시간 출석 기록 및 통계로 학생 관리를 더욱 효율적으로",
+      icon: "🏫",
+      title: "운영 콘솔",
+      description: "원장이 학생, 반, 공지, 수납 현황을 빠르게 전환하며 관리할 수 있습니다.",
+    },
+    {
+      icon: "🚶",
+      title: "등하원 체크",
+      description: "학생 번호 입력만으로 등원과 하원을 자동 기록해 출결 흐름을 단순화합니다.",
     },
     {
       icon: "📢",
-      title: "공지사항 관리",
-      description: "학원 소식과 공지사항을 학생 및 학부모에게 빠르게 전달합니다",
-    },
-    {
-      icon: "🔔",
-      title: "알림톡 발송",
-      description: "중요한 소식을 알림톡으로 즉시 전달합니다",
+      title: "공지 공유",
+      description: "공지 내용을 올리고 필요한 경우 외부 공유 흐름과 함께 빠르게 전달할 수 있습니다.",
     },
     {
       icon: "💳",
       title: "수강료 관리",
-      description: "수강료 납부 현황을 체계적으로 관리합니다",
+      description: "납부 현황과 대기·미납 상태를 한 번에 확인하고 관리할 수 있습니다.",
     },
   ];
 
@@ -46,26 +46,22 @@ export default function Home() {
     {
       name: "김학원장",
       role: "학원 원장",
-      text: "학원 운영이 정말 간편해졌습니다. 모든 업무를 한 시스템에서 처리할 수 있어 시간이 많이 절약됩니다.",
+      text: "운영에 필요한 화면이 한 곳에 모여 있어서 학생이 많아도 관리가 훨씬 빨라졌습니다.",
     },
     {
       name: "이강사",
       role: "강사",
-      text: "학생 관리와 출석 기록이 자동으로 되어 수업에만 집중할 수 있습니다.",
+      text: "시간표와 공지가 정리되어 있어서 수업 준비와 전달이 훨씬 수월합니다.",
     },
     {
       name: "박학부모",
       role: "학부모",
-      text: "아이의 출석 현황과 공지사항을 실시간으로 확인할 수 있어 안심이 됩니다.",
+      text: "등하원 기록과 공지를 바로 확인할 수 있어 아이 학원 생활을 더 안심하고 볼 수 있습니다.",
     },
   ];
 
   return (
-    <div
-      className="min-h-screen"
-      style={{ backgroundColor: theme.colors.background.primary }}
-    >
-      {/* 네비게이션 */}
+    <div className="min-h-screen" style={{ backgroundColor: theme.colors.background.primary }}>
       <nav
         className="border-b"
         style={{
@@ -73,9 +69,9 @@ export default function Home() {
           borderColor: theme.colors.border.primary,
         }}
       >
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto flex items-center justify-between px-4 py-4">
           <div className="flex items-center gap-3">
-                  <img src="/logo.png" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
+            <img src="/logo.png" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
             <div>
               <p
                 className="text-xs font-semibold uppercase tracking-[0.24em]"
@@ -83,23 +79,19 @@ export default function Home() {
               >
                 ET English Academy
               </p>
-              <div
-                className="text-2xl font-bold"
-                style={{ color: theme.colors.accent.primary }}
-              >
+              <div className="text-2xl font-bold" style={{ color: theme.colors.accent.primary }}>
                 ET영어전문학원
               </div>
             </div>
           </div>
+
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
-              <>
-                <Link href={user?.role === "admin" || user?.role === "teacher" ? "/admin" : "/student"}>
-                  <Button variant="secondary" size="md">
-                    대시보드
-                  </Button>
-                </Link>
-              </>
+              <Link href={user?.role === "admin" || user?.role === "teacher" ? "/admin" : user?.role === "parent" ? "/parent" : "/student"}>
+                <Button variant="secondary" size="md">
+                  대시보드
+                </Button>
+              </Link>
             ) : (
               <>
                 <Link href="/login">
@@ -118,78 +110,128 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* 히어로 섹션 */}
       <section
-        className="py-20 md:py-32"
+        className="py-16 md:py-24"
         style={{
           background: `linear-gradient(135deg, ${theme.colors.background.primary} 0%, ${theme.colors.background.secondary} 100%)`,
         }}
       >
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1
-            className="text-5xl md:text-6xl font-bold mb-6"
-            style={{ color: theme.colors.text.primary }}
-          >
-            학원 운영의 모든 것을
-            <br />
-            한 곳에서
-          </h1>
-          <p
-            className="text-xl md:text-2xl mb-8 max-w-2xl mx-auto"
-            style={{ color: theme.colors.text.tertiary }}
-          >
-            학생 관리부터 출석, 공지까지 학원 운영에 필요한 모든 기능을 통합한 프리미엄 플랫폼입니다
-          </p>
-          <div className="flex flex-col md:flex-row gap-4 justify-center">
-            <Link href="/login">
-              <Button variant="primary" size="lg">
-                무료로 시작하기
-              </Button>
-            </Link>
-            <Button variant="secondary" size="lg">
-              데모 보기
-            </Button>
+        <div className="max-w-7xl mx-auto grid grid-cols-1 gap-10 px-4 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <div className="text-center lg:text-left">
+            <p
+              className="mb-4 text-sm font-semibold uppercase tracking-[0.3em]"
+              style={{ color: theme.colors.accent.secondary }}
+            >
+              Academy Operating Platform
+            </p>
+            <h1
+              className="text-5xl font-bold leading-tight md:text-6xl"
+              style={{ color: theme.colors.text.primary }}
+            >
+              학원 운영의 모든 것을
+              <br />
+              한 곳에서
+            </h1>
+            <p
+              className="mt-6 max-w-2xl text-lg md:text-xl"
+              style={{ color: theme.colors.text.tertiary }}
+            >
+              학생 관리부터 반 시간표, 공지, 수납, 등하원 기록까지 ET영어전문학원 운영에 필요한 흐름을
+              통합한 프리미엄 플랫폼입니다.
+            </p>
+            <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row lg:justify-start">
+              <Link href="/login">
+                <Button variant="primary" size="lg">
+                  무료로 시작하기
+                </Button>
+              </Link>
+              <Link href="/signup">
+                <Button variant="secondary" size="lg">
+                  회원가입
+                </Button>
+              </Link>
+            </div>
           </div>
+
+          <Card
+            variant="elevated"
+            padding="lg"
+            className="overflow-hidden rounded-[32px]"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(124, 58, 237, 0.22) 0%, rgba(37, 99, 235, 0.18) 45%, rgba(45, 212, 191, 0.20) 100%)",
+              borderColor: "rgba(255,255,255,0.12)",
+            }}
+          >
+            <div className="space-y-6">
+              <div className="rounded-3xl border bg-white/90 p-6" style={{ borderColor: "rgba(255,255,255,0.22)" }}>
+                <p
+                  className="text-sm font-semibold uppercase tracking-[0.28em]"
+                  style={{ color: "#4f46e5" }}
+                >
+                  제작자 회사명
+                </p>
+                <div className="mt-5 flex flex-col items-center gap-5 text-center">
+                  <img
+                    src="/don-studio.png"
+                    alt="D:ON Studio"
+                    className="w-full max-w-[360px] rounded-3xl bg-white object-contain"
+                  />
+                  <div>
+                    <p className="text-base font-medium" style={{ color: "#1f3b68" }}>
+                      Design • Branding • Product Build
+                    </p>
+                    <h2 className="mt-2 text-4xl font-bold md:text-5xl" style={{ color: "#111827" }}>
+                      D:ON Studio
+                    </h2>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
+                  <p className="text-sm" style={{ color: "#dbeafe" }}>
+                    운영 콘솔
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-white">학생 · 반 · 공지</p>
+                </div>
+                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
+                  <p className="text-sm" style={{ color: "#dbeafe" }}>
+                    출결 흐름
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-white">등원 · 하원 자동 기록</p>
+                </div>
+                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
+                  <p className="text-sm" style={{ color: "#dbeafe" }}>
+                    포털
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-white">학생 · 학부모 확인 화면</p>
+                </div>
+              </div>
+            </div>
+          </Card>
         </div>
       </section>
 
-      {/* 주요 기능 */}
-      <section className="py-20 md:py-32">
+      <section className="py-20 md:py-28">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2
-              className="text-4xl font-bold mb-4"
-              style={{ color: theme.colors.text.primary }}
-            >
+          <div className="mb-16 text-center">
+            <h2 className="text-4xl font-bold mb-4" style={{ color: theme.colors.text.primary }}>
               주요 기능
             </h2>
-            <p
-              className="text-lg"
-              style={{ color: theme.colors.text.tertiary }}
-            >
-              학원 운영을 위한 모든 필수 기능을 제공합니다
+            <p className="text-lg" style={{ color: theme.colors.text.tertiary }}>
+              학원 운영에 필요한 핵심 흐름을 실무 중심으로 정리했습니다.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {features.map((feature, idx) => (
-              <Card
-                key={idx}
-                variant="elevated"
-                padding="lg"
-                className="hover:shadow-lg transition-shadow"
-              >
-                <div className="text-4xl mb-4">{feature.icon}</div>
-                <h3
-                  className="text-xl font-semibold mb-2"
-                  style={{ color: theme.colors.text.primary }}
-                >
+              <Card key={idx} variant="elevated" padding="lg" className="hover:shadow-lg transition-shadow">
+                <div className="mb-4 text-4xl">{feature.icon}</div>
+                <h3 className="mb-2 text-xl font-semibold" style={{ color: theme.colors.text.primary }}>
                   {feature.title}
                 </h3>
-                <p
-                  className="text-base"
-                  style={{ color: theme.colors.text.tertiary }}
-                >
+                <p className="text-base" style={{ color: theme.colors.text.tertiary }}>
                   {feature.description}
                 </p>
               </Card>
@@ -198,35 +240,22 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 학원 소개 */}
-      <section
-        className="py-20 md:py-32"
-        style={{
-          backgroundColor: theme.colors.background.secondary,
-        }}
-      >
+      <section className="py-20 md:py-28" style={{ backgroundColor: theme.colors.background.secondary }}>
         <div className="max-w-7xl mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 gap-12 md:grid-cols-2 md:items-center">
             <div>
-              <h2
-                className="text-4xl font-bold mb-6"
-                style={{ color: theme.colors.text.primary }}
-              >
+              <h2 className="text-4xl font-bold mb-6" style={{ color: theme.colors.text.primary }}>
                 학원 운영의
                 <br />
                 새로운 표준
               </h2>
-              <p
-                className="text-lg mb-4"
-                style={{ color: theme.colors.text.tertiary }}
-              >
-                Academy System은 학원 원장, 강사, 학생, 학부모 모두를 위한 통합 플랫폼입니다.
+              <p className="text-lg mb-4" style={{ color: theme.colors.text.tertiary }}>
+                학생 수가 많아져도 반, 시간표, 공지, 수납, 등하원 기록을 빠르게 전환하며 운영할 수 있게
+                설계했습니다.
               </p>
-              <p
-                className="text-lg mb-8"
-                style={{ color: theme.colors.text.tertiary }}
-              >
-                복잡한 학원 운영 업무를 간단하게 정리하고, 학생 관리를 효율적으로 하며, 학부모와의 소통을 강화합니다.
+              <p className="text-lg mb-8" style={{ color: theme.colors.text.tertiary }}>
+                ET영어전문학원처럼 실제 운영 환경에 맞춰 관리자 화면은 단단하게, 학생과 학부모 화면은 읽기
+                쉽게 구성했습니다.
               </p>
               <Link href="/login">
                 <Button variant="primary" size="lg">
@@ -236,123 +265,52 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Card variant="elevated" padding="md">
-                <div className="text-center">
-                  <p
-                    className="text-4xl font-bold mb-2"
-                    style={{ color: theme.colors.accent.primary }}
-                  >
-                    1000+
-                  </p>
-                  <p
-                    className="text-sm"
-                    style={{ color: theme.colors.text.tertiary }}
-                  >
-                    학원 사용 중
-                  </p>
-                </div>
-              </Card>
-
-              <Card variant="elevated" padding="md">
-                <div className="text-center">
-                  <p
-                    className="text-4xl font-bold mb-2"
-                    style={{ color: theme.colors.accent.primary }}
-                  >
-                    50K+
-                  </p>
-                  <p
-                    className="text-sm"
-                    style={{ color: theme.colors.text.tertiary }}
-                  >
-                    활동 학생
-                  </p>
-                </div>
-              </Card>
-
-              <Card variant="elevated" padding="md">
-                <div className="text-center">
-                  <p
-                    className="text-4xl font-bold mb-2"
-                    style={{ color: theme.colors.accent.primary }}
-                  >
-                    99.9%
-                  </p>
-                  <p
-                    className="text-sm"
-                    style={{ color: theme.colors.text.tertiary }}
-                  >
-                    가용성
-                  </p>
-                </div>
-              </Card>
-
-              <Card variant="elevated" padding="md">
-                <div className="text-center">
-                  <p
-                    className="text-4xl font-bold mb-2"
-                    style={{ color: theme.colors.accent.primary }}
-                  >
-                    24/7
-                  </p>
-                  <p
-                    className="text-sm"
-                    style={{ color: theme.colors.text.tertiary }}
-                  >
-                    고객 지원
-                  </p>
-                </div>
-              </Card>
+              {[
+                { value: "400+", label: "관리 가능한 학생 규모" },
+                { value: "7일", label: "요일별 개별 시간표 지원" },
+                { value: "1화면", label: "원장 중심 운영 콘솔" },
+                { value: "실시간", label: "등하원 기록 확인" },
+              ].map((item) => (
+                <Card key={item.label} variant="elevated" padding="md">
+                  <div className="text-center">
+                    <p className="mb-2 text-4xl font-bold" style={{ color: theme.colors.accent.primary }}>
+                      {item.value}
+                    </p>
+                    <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
+                      {item.label}
+                    </p>
+                  </div>
+                </Card>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* 사용자 후기 */}
-      <section className="py-20 md:py-32">
+      <section className="py-20 md:py-28">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2
-              className="text-4xl font-bold mb-4"
-              style={{ color: theme.colors.text.primary }}
-            >
+          <div className="mb-16 text-center">
+            <h2 className="text-4xl font-bold mb-4" style={{ color: theme.colors.text.primary }}>
               사용자 후기
             </h2>
-            <p
-              className="text-lg"
-              style={{ color: theme.colors.text.tertiary }}
-            >
-              Academy System을 사용하는 학원들의 실제 후기입니다
+            <p className="text-lg" style={{ color: theme.colors.text.tertiary }}>
+              실제 운영자와 사용자 관점에서 느낀 변화를 담았습니다.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
             {testimonials.map((testimonial, idx) => (
-              <Card
-                key={idx}
-                variant="elevated"
-                padding="lg"
-                className="hover:shadow-lg transition-shadow"
-              >
+              <Card key={idx} variant="elevated" padding="lg" className="hover:shadow-lg transition-shadow">
                 <div className="mb-4">
-                  <p
-                    className="text-lg italic"
-                    style={{ color: theme.colors.text.secondary }}
-                  >
+                  <p className="text-lg italic" style={{ color: theme.colors.text.secondary }}>
                     "{testimonial.text}"
                   </p>
                 </div>
-                <div className="border-t" style={{ borderColor: theme.colors.border.primary }}>
-                  <p
-                    className="font-semibold mt-4"
-                    style={{ color: theme.colors.text.primary }}
-                  >
+                <div className="border-t pt-4" style={{ borderColor: theme.colors.border.primary }}>
+                  <p className="font-semibold" style={{ color: theme.colors.text.primary }}>
                     {testimonial.name}
                   </p>
-                  <p
-                    className="text-sm"
-                    style={{ color: theme.colors.text.tertiary }}
-                  >
+                  <p className="text-sm" style={{ color: theme.colors.text.tertiary }}>
                     {testimonial.role}
                   </p>
                 </div>
@@ -362,137 +320,29 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA 섹션 */}
-      <section
-        className="py-20 md:py-32"
-        style={{
-          backgroundColor: theme.colors.background.secondary,
-        }}
-      >
+      <section className="py-20 md:py-28" style={{ backgroundColor: theme.colors.background.secondary }}>
         <div className="max-w-4xl mx-auto px-4 text-center">
-          <h2
-            className="text-4xl font-bold mb-6"
-            style={{ color: theme.colors.text.primary }}
-          >
-            지금 바로 시작하세요
+          <h2 className="mb-6 text-4xl font-bold" style={{ color: theme.colors.text.primary }}>
+            지금 바로 시작해보세요
           </h2>
-          <p
-            className="text-xl mb-8"
-            style={{ color: theme.colors.text.tertiary }}
-          >
-            Academy System으로 학원 운영을 간단하고 효율적으로 만들어보세요
+          <p className="mb-8 text-xl" style={{ color: theme.colors.text.tertiary }}>
+            ET영어전문학원 운영 환경에 맞춘 콘솔과 포털을 지금 바로 사용할 수 있습니다.
           </p>
-          <Link href="/login">
-            <Button variant="primary" size="lg">
-              무료로 시작하기
-            </Button>
-          </Link>
-        </div>
-      </section>
-
-      {/* ET영어전문학원 소개 */}
-      <section
-        className="py-20 md:py-32"
-        style={{
-          backgroundColor: theme.colors.background.secondary,
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-3 mb-6">
-                <img src="/logo.png" alt="ET" className="h-12 w-12 rounded-xl object-cover" />
-              <h2
-                className="text-4xl font-bold"
-                style={{ color: theme.colors.text.primary }}
-              >
-                ET영어전문학원
-              </h2>
-            </div>
-            <p
-              className="text-xl mb-4"
-              style={{ color: theme.colors.accent.primary }}
-            >
-              📚 매일 학습으로 실력 UP!
-            </p>
-            <p
-              className="text-lg max-w-3xl mx-auto"
-              style={{ color: theme.colors.text.tertiary }}
-            >
-              우리 영어학원은 월요일부터 금요일까지 매일 영어 수업을 제공하여 학생들의 영어 실력을 체계적으로 향상시킬 수 있는 특별한 학원입니다. 초등학생부터 고등학생까지 모든 학년을 위한 포괄적인 교육을 제공하며, 파닉스부터 수능까지 다양한 과정을 전문적으로 다룹니다.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-            <Card variant="elevated" padding="lg">
-              <div className="text-center">
-                <p
-                  className="text-2xl font-bold mb-2"
-                  style={{ color: theme.colors.accent.primary }}
-                >
-                  2008년
-                </p>
-                <p
-                  className="text-sm"
-                  style={{ color: theme.colors.text.tertiary }}
-                >
-                  설립 이후 지역 대표 명품 입시 영어전문학원
-                </p>
-              </div>
-            </Card>
-
-            <Card variant="elevated" padding="lg">
-              <div className="text-center">
-                <p
-                  className="text-2xl font-bold mb-2"
-                  style={{ color: theme.colors.accent.primary }}
-                >
-                  초등~고등
-                </p>
-                <p
-                  className="text-sm"
-                  style={{ color: theme.colors.text.tertiary }}
-                >
-                  모든 학년을 위한 포괄적인 교육
-                </p>
-              </div>
-            </Card>
-
-            <Card variant="elevated" padding="lg">
-              <div className="text-center">
-                <p
-                  className="text-2xl font-bold mb-2"
-                  style={{ color: theme.colors.accent.primary }}
-                >
-                  파닉스~수능
-                </p>
-                <p
-                  className="text-sm"
-                  style={{ color: theme.colors.text.tertiary }}
-                >
-                  다양한 과정을 전문적으로 다룸
-                </p>
-              </div>
-            </Card>
-          </div>
-
-          <div className="text-center">
-            <p
-              className="text-lg mb-6"
-              style={{ color: theme.colors.text.secondary }}
-            >
-              📞 전화: 062-972-2708 | 📷 인스타그램: @et_englishacademy
-            </p>
-            <p
-              className="text-sm"
-              style={{ color: theme.colors.text.tertiary }}
-            >
-              등록번호: 제 4179호 | 교습과목: 외국어(영어)
-            </p>
+          <div className="flex flex-col justify-center gap-4 sm:flex-row">
+            <Link href="/login">
+              <Button variant="primary" size="lg">
+                로그인
+              </Button>
+            </Link>
+            <Link href="/signup">
+              <Button variant="secondary" size="lg">
+                회원가입
+              </Button>
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* 푸터 */}
       <Footer />
     </div>
   );
