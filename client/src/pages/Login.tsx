@@ -59,7 +59,7 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-5">
-              <img src="/logo.png" alt="ET" className="h-12 w-12 rounded-xl object-cover" />
+            <img src="/logo.png" alt="ET" className="h-12 w-12 rounded-xl object-cover" />
             <div className="text-left">
               <p
                 className="text-xs uppercase tracking-[0.25em]"
@@ -80,6 +80,40 @@ export default function Login() {
             style={{ color: theme.colors.text.tertiary }}
           >
             학생, 부모, 관리자 페이지가 같은 데이터로 동기화됩니다.
+          </p>
+        </div>
+
+        <div
+          className="mb-5 rounded-[28px] border p-5 text-center"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(244,247,255,0.95) 100%)",
+            borderColor: "rgba(148, 163, 184, 0.22)",
+            boxShadow: "0 18px 36px rgba(15, 23, 42, 0.12)",
+          }}
+        >
+          <p
+            className="text-[11px] font-semibold uppercase tracking-[0.3em]"
+            style={{ color: "#6366f1" }}
+          >
+            제작자 회사명
+          </p>
+          <img
+            src="/don-studio.png"
+            alt="D:ON Studio"
+            className="mx-auto mt-4 w-full max-w-[260px] object-contain"
+          />
+          <p
+            className="mt-3 text-xl font-bold"
+            style={{ color: "#111827" }}
+          >
+            D:ON Studio
+          </p>
+          <p
+            className="mt-2 text-sm"
+            style={{ color: "#475569" }}
+          >
+            Design · Branding · Product Build
           </p>
         </div>
 
