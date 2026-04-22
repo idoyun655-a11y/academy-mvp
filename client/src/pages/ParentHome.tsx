@@ -58,14 +58,14 @@ export default function ParentHome() {
       <div className="space-y-6">
         {snapshots.length > 1 ? (
           <Card variant="elevated" padding="md">
-            <div className="flex flex-wrap gap-2">
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
               {snapshots.map((snapshot: any) => {
                 const isActive = snapshot.student.id === selectedSnapshot.student.id;
                 return (
                   <button
                     key={snapshot.student.id}
                     onClick={() => setSelectedStudentId(snapshot.student.id)}
-                    className="rounded-full px-4 py-2 text-sm font-medium"
+                    className="shrink-0 rounded-full px-4 py-2 text-sm font-medium"
                     style={{
                       backgroundColor: isActive ? uiThemeVars.accentPrimary : uiThemeVars.surfaceAlt,
                       color: isActive ? "#fff" : uiThemeVars.textPrimary,
@@ -80,7 +80,7 @@ export default function ParentHome() {
           </Card>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
           <StatCard label="오늘 상태" value={todayStatusMeta.label} color="success" />
           <StatCard label="수강 반" value={selectedSnapshot.summary.totalClasses} color="info" />
           <StatCard label="미납/대기" value={selectedSnapshot.summary.pendingPayments} color="warning" />
@@ -102,7 +102,7 @@ export default function ParentHome() {
                 <Badge variant="info" size="sm">
                   보호자 연결 중
                 </Badge>
-                <h2 className="mt-3 text-2xl font-semibold" style={{ color: uiThemeVars.textPrimary }}>
+                <h2 className="mt-3 text-xl font-semibold sm:text-2xl" style={{ color: uiThemeVars.textPrimary }}>
                   {selectedSnapshot.student.name}
                 </h2>
                 <p className="mt-1 text-sm" style={{ color: uiThemeVars.textSecondary }}>
@@ -170,7 +170,7 @@ export default function ParentHome() {
                     className="rounded-2xl p-3"
                     style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p style={{ color: uiThemeVars.textPrimary }}>{formatDate(record.commuteDate)}</p>
                         <p className="text-sm" style={{ color: uiThemeVars.textTertiary }}>
@@ -224,7 +224,7 @@ export default function ParentHome() {
             {selectedSnapshot.payments.slice(0, 6).map((payment: any) => (
               <div
                 key={payment.id}
-                className="flex items-center justify-between rounded-2xl p-3"
+                className="flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:items-center sm:justify-between"
                 style={{ backgroundColor: uiThemeVars.surfaceAlt }}
               >
                 <div>

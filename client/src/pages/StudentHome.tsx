@@ -50,7 +50,7 @@ export default function StudentHome() {
       variant="portal-light"
     >
       <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
           <StatCard label="오늘 상태" value={todayStatusMeta.label} color="success" />
           <StatCard label="수강 반" value={snapshot.summary.totalClasses} color="info" />
           <StatCard label="공지" value={snapshot.summary.totalNotices} color="warning" />
@@ -65,19 +65,22 @@ export default function StudentHome() {
               "linear-gradient(135deg, rgba(37, 99, 235, 0.12) 0%, rgba(14, 165, 233, 0.10) 55%, rgba(45, 212, 191, 0.10) 100%)",
           }}
         >
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <Badge variant="info" size="sm">
                 오늘의 등하원
               </Badge>
-              <h2 className="mt-4 text-2xl font-semibold" style={{ color: uiThemeVars.textPrimary }}>
+              <h2
+                className="mt-4 text-xl font-semibold sm:text-2xl"
+                style={{ color: uiThemeVars.textPrimary }}
+              >
                 등원 {formatTime(snapshot.commute.latestCheckInAt)} / 하원 {formatTime(snapshot.commute.latestCheckOutAt)}
               </h2>
               <p className="mt-2 text-sm" style={{ color: uiThemeVars.textSecondary }}>
                 미하원 상태면 학원에 아직 남아 있는 학생으로 표시됩니다.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               {STUDENT_NAV_ITEMS.slice(1).map((item) => (
                 <button
                   key={item.href}
@@ -98,7 +101,7 @@ export default function StudentHome() {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card variant="elevated" padding="lg" className="lg:col-span-2">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.22em]" style={{ color: uiThemeVars.accentSecondary }}>
                   Latest Notices
@@ -126,8 +129,8 @@ export default function StudentHome() {
                   className="rounded-2xl p-4"
                   style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                    <div className="min-w-0 flex-1">
                       <p className="font-medium" style={{ color: uiThemeVars.textPrimary }}>
                         {notice.title}
                       </p>
@@ -135,7 +138,7 @@ export default function StudentHome() {
                         {notice.content}
                       </p>
                     </div>
-                    <p className="text-xs" style={{ color: uiThemeVars.textTertiary }}>
+                    <p className="shrink-0 text-xs" style={{ color: uiThemeVars.textTertiary }}>
                       {formatDate(notice.createdAt)}
                     </p>
                   </div>
@@ -191,7 +194,7 @@ export default function StudentHome() {
                     className="rounded-2xl p-4"
                     style={{ backgroundColor: uiThemeVars.surfaceAlt }}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="font-medium" style={{ color: uiThemeVars.textPrimary }}>
                           {formatDate(record.commuteDate)}

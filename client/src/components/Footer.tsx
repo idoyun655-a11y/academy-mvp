@@ -4,14 +4,14 @@ import { uiThemeVars } from "@/styles/runtime-theme";
 export default function Footer() {
   return (
     <footer
-      className="border-t py-8"
+      className="border-t py-6 sm:py-8"
       style={{
         backgroundColor: uiThemeVars.bgPrimary,
         borderColor: uiThemeVars.borderPrimary,
       }}
     >
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="grid grid-cols-1 gap-8 mb-8 md:grid-cols-2">
+      <div className="mx-auto max-w-7xl px-3 sm:px-4">
+        <div className="mb-6 grid grid-cols-1 gap-6 md:mb-8 md:grid-cols-2 md:gap-8">
           <div>
             <div className="flex items-center gap-2 mb-4">
               <img src="/logo.png" alt="ET" className="h-6 w-6 rounded-lg object-cover" />
@@ -45,7 +45,7 @@ export default function Footer() {
                   href="https://www.instagram.com/et_englishacademy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm hover:opacity-80 transition-opacity"
+                  className="break-words text-sm leading-6 transition-opacity hover:opacity-80"
                   style={{ color: uiThemeVars.textTertiary }}
                 >
                   📷 인스타그램: @et_englishacademy
@@ -56,7 +56,7 @@ export default function Footer() {
                   href="https://blog.naver.com/eteng365"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm hover:opacity-80 transition-opacity"
+                  className="break-all text-sm leading-6 transition-opacity hover:opacity-80"
                   style={{ color: uiThemeVars.textTertiary }}
                 >
                   📝 블로그: https://blog.naver.com/eteng365
@@ -65,7 +65,7 @@ export default function Footer() {
               <li>
                 <a
                   href="mailto:info@etacademy.com"
-                  className="text-sm hover:opacity-80 transition-opacity"
+                  className="break-all text-sm leading-6 transition-opacity hover:opacity-80"
                   style={{ color: uiThemeVars.textTertiary }}
                 >
                   ✉ 이메일: info@etacademy.com
@@ -85,7 +85,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="border-t pt-8 text-center" style={{ borderColor: uiThemeVars.borderPrimary }}>
+        <div className="border-t pt-6 text-center sm:pt-8" style={{ borderColor: uiThemeVars.borderPrimary }}>
           <p className="text-sm" style={{ color: uiThemeVars.textTertiary }}>
             ⓒ 2026 ET영어전문학원. All rights reserved.
           </p>

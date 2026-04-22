@@ -29,6 +29,7 @@ export default function PortalLayout({
   const { user, logout } = useAuth();
   const isLightPortal = variant === "portal-light";
   const homeHref = user?.role === "parent" ? "/parent" : "/student";
+  const navScrollerStyle = { scrollbarWidth: "none" } as const;
 
   return (
     <div
@@ -50,37 +51,37 @@ export default function PortalLayout({
           borderColor: isLightPortal ? "rgba(255, 255, 255, 0.28)" : theme.colors.border.primary,
         }}
       >
-        <div className="max-w-7xl mx-auto px-4 py-5 space-y-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="mx-auto max-w-7xl space-y-3 px-3 py-4 sm:px-4 sm:py-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <button
               type="button"
               onClick={() => setLocation(homeHref)}
-              className="flex items-start gap-4 text-left"
+              className="flex min-w-0 items-start gap-3 text-left sm:gap-4"
             >
               <img
                 src="/logo.png"
                 alt="ET영어전문학원 로고"
-                className="h-14 w-14 rounded-2xl border object-cover shadow-lg"
+                className="h-14 w-14 flex-shrink-0 rounded-2xl border object-cover shadow-lg"
                 style={{
                   borderColor: isLightPortal ? "rgba(255, 255, 255, 0.38)" : theme.colors.border.primary,
                   backgroundColor: isLightPortal ? "rgba(255, 255, 255, 0.18)" : undefined,
                 }}
               />
-              <div>
+              <div className="min-w-0 flex-1">
                 <p
-                  className="text-xs font-semibold uppercase tracking-[0.28em]"
+                  className="text-[10px] font-semibold uppercase leading-none tracking-[0.24em] sm:text-xs sm:tracking-[0.28em]"
                   style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.84)" : theme.colors.accent.secondary }}
                 >
                   ET English Academy
                 </p>
                 <h1
-                  className="mt-1 text-3xl font-bold"
+                  className="mt-2 break-keep text-[2.05rem] font-bold leading-[1.02] sm:text-4xl"
                   style={{ color: isLightPortal ? "#ffffff" : theme.colors.text.primary }}
                 >
                   {title}
                 </h1>
                 <p
-                  className="mt-2 text-sm"
+                  className="mt-3 max-w-[26rem] text-sm leading-6 sm:text-base"
                   style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.82)" : theme.colors.text.tertiary }}
                 >
                   {subtitle}
@@ -88,49 +89,59 @@ export default function PortalLayout({
               </div>
             </button>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <PortalNotificationBell variant={variant} />
-              <div
-                className="rounded-2xl px-4 py-3 text-right"
-                style={{
-                  backgroundColor: isLightPortal ? "rgba(255, 255, 255, 0.14)" : "transparent",
-                }}
-              >
-                <p
-                  className="text-sm font-medium"
-                  style={{ color: isLightPortal ? "#ffffff" : theme.colors.text.primary }}
-                >
-                  {user?.name || "사용자"}
-                </p>
-                <p
-                  className="text-xs"
-                  style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.82)" : theme.colors.text.tertiary }}
-                >
-                  {user?.email || "-"}
-                </p>
+            <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-3 xl:min-w-[320px] xl:grid-cols-1">
+              <div className="flex items-start xl:hidden">
+                <PortalNotificationBell variant={variant} />
               </div>
-              <button
-                onClick={logout}
-                className="rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-                style={{
-                  backgroundColor: isLightPortal ? "#ffffff" : theme.colors.background.tertiary,
-                  color: isLightPortal ? "#1d4ed8" : theme.colors.text.primary,
-                  border: `1px solid ${isLightPortal ? "rgba(255, 255, 255, 0.24)" : theme.colors.border.primary}`,
-                }}
-              >
-                로그아웃
-              </button>
+              <div className="min-w-0 space-y-2 xl:flex xl:items-center xl:justify-end xl:gap-3 xl:space-y-0">
+                <div className="hidden xl:block">
+                  <PortalNotificationBell variant={variant} />
+                </div>
+                <div
+                  className="min-w-0 rounded-2xl px-4 py-3 text-left xl:text-right"
+                  style={{
+                    backgroundColor: isLightPortal ? "rgba(255, 255, 255, 0.14)" : "transparent",
+                  }}
+                >
+                  <p
+                    className="truncate text-sm font-medium"
+                    style={{ color: isLightPortal ? "#ffffff" : theme.colors.text.primary }}
+                  >
+                    {user?.name || "사용자"}
+                  </p>
+                  <p
+                    className="truncate text-xs"
+                    style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.82)" : theme.colors.text.tertiary }}
+                  >
+                    {user?.email || "-"}
+                  </p>
+                </div>
+                <button
+                  onClick={logout}
+                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold transition-colors xl:w-auto xl:rounded-lg xl:px-4 xl:py-2"
+                  style={{
+                    backgroundColor: isLightPortal ? "#ffffff" : theme.colors.background.tertiary,
+                    color: isLightPortal ? "#1d4ed8" : theme.colors.text.primary,
+                    border: `1px solid ${isLightPortal ? "rgba(255, 255, 255, 0.24)" : theme.colors.border.primary}`,
+                  }}
+                >
+                  로그아웃
+                </button>
+              </div>
             </div>
           </div>
 
-          <nav className="flex flex-wrap gap-2">
+          <nav
+            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+            style={navScrollerStyle}
+          >
             {navItems.map((item) => {
               const isActive = location === item.href;
               return (
                 <button
                   key={item.href}
                   onClick={() => setLocation(item.href)}
-                  className="rounded-full px-4 py-2 text-sm font-medium transition-colors"
+                  className="shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors"
                   style={{
                     backgroundColor: isActive
                       ? isLightPortal
@@ -165,7 +176,7 @@ export default function PortalLayout({
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">{children}</main>
+      <main className="mx-auto max-w-7xl px-3 py-5 sm:px-4 sm:py-8">{children}</main>
       <Footer />
     </div>
   );
