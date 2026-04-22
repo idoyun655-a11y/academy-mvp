@@ -51,8 +51,8 @@ export default function PortalLayout({
           borderColor: isLightPortal ? "rgba(255, 255, 255, 0.28)" : theme.colors.border.primary,
         }}
       >
-        <div className="mx-auto max-w-7xl space-y-3 px-3 py-4 sm:px-4 sm:py-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="mx-auto max-w-7xl space-y-2 px-3 py-3 sm:space-y-3 sm:px-4 sm:py-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <button
               type="button"
               onClick={() => setLocation(homeHref)}
@@ -61,7 +61,7 @@ export default function PortalLayout({
               <img
                 src="/logo.png"
                 alt="ET영어전문학원 로고"
-                className="h-14 w-14 flex-shrink-0 rounded-2xl border object-cover shadow-lg"
+                className="h-10 w-10 flex-shrink-0 rounded-2xl border object-cover shadow-lg sm:h-14 sm:w-14"
                 style={{
                   borderColor: isLightPortal ? "rgba(255, 255, 255, 0.38)" : theme.colors.border.primary,
                   backgroundColor: isLightPortal ? "rgba(255, 255, 255, 0.18)" : undefined,
@@ -69,19 +69,19 @@ export default function PortalLayout({
               />
               <div className="min-w-0 flex-1">
                 <p
-                  className="text-[10px] font-semibold uppercase leading-none tracking-[0.24em] sm:text-xs sm:tracking-[0.28em]"
+                  className="text-[9px] font-semibold uppercase leading-none tracking-[0.22em] sm:text-xs sm:tracking-[0.28em]"
                   style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.84)" : theme.colors.accent.secondary }}
                 >
                   ET English Academy
                 </p>
                 <h1
-                  className="mt-2 break-keep text-[2.05rem] font-bold leading-[1.02] sm:text-4xl"
+                  className="mt-1.5 break-keep text-[1.7rem] font-bold leading-[1.04] sm:mt-2 sm:text-4xl"
                   style={{ color: isLightPortal ? "#ffffff" : theme.colors.text.primary }}
                 >
                   {title}
                 </h1>
                 <p
-                  className="mt-3 max-w-[26rem] text-sm leading-6 sm:text-base"
+                  className="mt-1.5 max-w-[22rem] text-xs leading-5 sm:mt-3 sm:max-w-[26rem] sm:text-base sm:leading-6"
                   style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.82)" : theme.colors.text.tertiary }}
                 >
                   {subtitle}
@@ -89,28 +89,27 @@ export default function PortalLayout({
               </div>
             </button>
 
-            <div className="grid grid-cols-[56px_minmax(0,1fr)] gap-3 xl:min-w-[320px] xl:grid-cols-1">
-              <div className="flex items-start xl:hidden">
-                <PortalNotificationBell variant={variant} />
-              </div>
-              <div className="min-w-0 space-y-2 xl:flex xl:items-center xl:justify-end xl:gap-3 xl:space-y-0">
-                <div className="hidden xl:block">
+            <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-start gap-2 xl:min-w-[320px] xl:grid-cols-1">
+              <div className="flex items-start">
+                <div className="scale-90 sm:scale-100">
                   <PortalNotificationBell variant={variant} />
                 </div>
+              </div>
+              <div className="col-span-2 flex min-w-0 items-center gap-2 xl:col-span-1 xl:flex xl:items-center xl:justify-end xl:gap-3">
                 <div
-                  className="min-w-0 rounded-2xl px-4 py-3 text-left xl:text-right"
+                  className="min-w-0 flex-1 rounded-2xl px-3 py-2 text-left xl:flex-none xl:px-4 xl:py-3 xl:text-right"
                   style={{
                     backgroundColor: isLightPortal ? "rgba(255, 255, 255, 0.14)" : "transparent",
                   }}
                 >
                   <p
-                    className="truncate text-sm font-medium"
+                    className="truncate text-xs font-medium sm:text-sm"
                     style={{ color: isLightPortal ? "#ffffff" : theme.colors.text.primary }}
                   >
                     {user?.name || "사용자"}
                   </p>
                   <p
-                    className="truncate text-xs"
+                    className="truncate text-[11px] sm:text-xs"
                     style={{ color: isLightPortal ? "rgba(255, 255, 255, 0.82)" : theme.colors.text.tertiary }}
                   >
                     {user?.email || "-"}
@@ -118,7 +117,7 @@ export default function PortalLayout({
                 </div>
                 <button
                   onClick={logout}
-                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold transition-colors xl:w-auto xl:rounded-lg xl:px-4 xl:py-2"
+                  className="shrink-0 rounded-xl px-3 py-2 text-xs font-semibold transition-colors sm:text-sm xl:w-auto xl:rounded-lg xl:px-4 xl:py-2"
                   style={{
                     backgroundColor: isLightPortal ? "#ffffff" : theme.colors.background.tertiary,
                     color: isLightPortal ? "#1d4ed8" : theme.colors.text.primary,
@@ -132,7 +131,7 @@ export default function PortalLayout({
           </div>
 
           <nav
-            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+            className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 sm:gap-2 sm:pb-1"
             style={navScrollerStyle}
           >
             {navItems.map((item) => {
@@ -141,7 +140,7 @@ export default function PortalLayout({
                 <button
                   key={item.href}
                   onClick={() => setLocation(item.href)}
-                  className="shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors"
+                  className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:px-4 sm:py-2 sm:text-sm"
                   style={{
                     backgroundColor: isActive
                       ? isLightPortal
@@ -176,7 +175,7 @@ export default function PortalLayout({
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-3 py-5 sm:px-4 sm:py-8">{children}</main>
+      <main className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-8">{children}</main>
       <Footer />
     </div>
   );

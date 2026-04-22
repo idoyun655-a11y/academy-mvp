@@ -261,11 +261,11 @@ export default function StudentHome() {
       navItems={STUDENT_NAV_ITEMS}
       variant="portal-light"
     >
-      <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
+      <div className="mx-auto max-w-5xl space-y-3 sm:space-y-6">
         <Card
           variant="elevated"
-          padding="lg"
-          className="overflow-hidden rounded-[28px]"
+          padding="md"
+          className="overflow-hidden rounded-[24px] sm:rounded-[28px]"
           style={{
             background:
               "linear-gradient(135deg, rgba(37, 99, 235, 0.96) 0%, rgba(56, 86, 247, 0.94) 52%, rgba(45, 212, 191, 0.92) 100%)",
@@ -275,7 +275,7 @@ export default function StudentHome() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div
-                className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold"
+                className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold sm:text-xs"
                 style={{
                   backgroundColor: "rgba(255, 255, 255, 0.16)",
                   color: "#ffffff",
@@ -284,17 +284,17 @@ export default function StudentHome() {
                 <Sparkles className="h-4 w-4" />
                 {timelineHighlight?.label || "시험 일정"}
               </div>
-              <h2 className="mt-4 break-keep text-2xl font-bold leading-tight text-white sm:text-3xl">
+              <h2 className="mt-3 break-keep text-xl font-bold leading-tight text-white sm:mt-4 sm:text-3xl">
                 {timelineHighlight?.title || "다가오는 시험을 기다리는 중입니다."}
               </h2>
-              <p className="mt-3 break-keep text-sm leading-6 text-white/88 sm:text-base">
+              <p className="mt-2 break-keep text-[13px] leading-5 text-white/88 sm:mt-3 sm:text-base sm:leading-6">
                 {timelineHighlight?.subtitle ||
                   "관리자 페이지에서 시험이나 중요한 일정을 등록하면 여기에 가장 먼저 표시됩니다."}
               </p>
 
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
                 <span
-                  className="rounded-full px-3 py-1.5 text-xs font-medium"
+                  className="rounded-full px-3 py-1.5 text-[11px] font-medium sm:text-xs"
                   style={{
                     backgroundColor: "rgba(255, 255, 255, 0.18)",
                     color: "#ffffff",
@@ -304,7 +304,7 @@ export default function StudentHome() {
                 </span>
                 {todayStatusMeta ? (
                   <span
-                    className="rounded-full px-3 py-1.5 text-xs font-medium"
+                    className="rounded-full px-3 py-1.5 text-[11px] font-medium sm:text-xs"
                     style={{
                       backgroundColor: "rgba(255, 255, 255, 0.18)",
                       color: "#ffffff",
@@ -317,16 +317,16 @@ export default function StudentHome() {
             </div>
 
             <div
-              className="shrink-0 rounded-[24px] px-4 py-4 text-center sm:px-5"
+              className="shrink-0 rounded-[20px] px-3 py-3 text-center sm:rounded-[24px] sm:px-5 sm:py-4"
               style={{
                 backgroundColor: "rgba(255, 255, 255, 0.14)",
-                minWidth: 96,
+                minWidth: 78,
               }}
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/72">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/72 sm:text-[11px] sm:tracking-[0.22em]">
                 D-Day
               </p>
-              <p className="mt-2 text-2xl font-black text-white sm:text-3xl">
+              <p className="mt-1.5 text-xl font-black text-white sm:mt-2 sm:text-3xl">
                 {timelineHighlight?.dday || "-"}
               </p>
             </div>
