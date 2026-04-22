@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc, asc, sql } from "drizzle-orm";
+import { eq, and, isNull, desc, asc, sql, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, students, teachers, classes, classSchedules, classEnrollments, attendance, notices, notificationTemplates, notificationLogs, adminLogs, payments, grades, examSchedules, academyEvents, tuitionPayments } from "./drizzle/schema";
 import { ENV } from "./env";
@@ -255,11 +255,41 @@ export async function getClasses(limit: number = 50, offset: number = 0) {
   const db = await getDb();
   if (!db) return { data: [], total: 0 };
 
-  const data = await db.select().from(classes).where(isNull(classes.deletedAt)).limit(limit).offset(offset);
-  const countResult = await db.select({ count: sql<number>`COUNT(*)` }).from(classes).where(isNull(classes.deletedAt));
+  const data = await db
+    .select()
+    .from(classes)
+    .where(and(isNull(classes.deletedAt), eq(classes.isActive, true)))
+    .limit(limit)
+    .offset(offset);
+
+  const classIds = data.map((item) => item.id);
+  const schedules = classIds.length
+    ? await db.select().from(classSchedules).where(inArray(classSchedules.classId, classIds))
+    : [];
+
+  const schedulesByClassId = schedules.reduce<Record<number, typeof schedules>>((acc, schedule) => {
+    if (!acc[schedule.classId]) {
+      acc[schedule.classId] = [];
+    }
+    acc[schedule.classId].push(schedule);
+    return acc;
+  }, {});
+
+  const dataWithSchedules = data.map((item) => ({
+    ...item,
+    schedules: (schedulesByClassId[item.id] || []).sort((a, b) => {
+      if (a.dayOfWeek !== b.dayOfWeek) return a.dayOfWeek - b.dayOfWeek;
+      return a.startTime.localeCompare(b.startTime);
+    }),
+  }));
+
+  const countResult = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(classes)
+    .where(and(isNull(classes.deletedAt), eq(classes.isActive, true)));
   const total = countResult[0]?.count || 0;
 
-  return { data, total };
+  return { data: dataWithSchedules, total };
 }
 
 export async function getClassById(id: number) {
@@ -275,10 +305,49 @@ export async function createClass(data: typeof classes.$inferInsert) {
   return db.insert(classes).values(data);
 }
 
+export async function createClassWithSchedules(
+  data: typeof classes.$inferInsert,
+  schedules: Array<Omit<typeof classSchedules.$inferInsert, "classId">>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return db.transaction(async (tx) => {
+    const inserted = await tx.insert(classes).values(data).$returningId();
+    const classId = inserted[0]?.id;
+
+    if (!classId) {
+      throw new Error("반 생성에 실패했습니다.");
+    }
+
+    if (schedules.length > 0) {
+      await tx.insert(classSchedules).values(
+        schedules.map((schedule) => ({
+          classId,
+          dayOfWeek: schedule.dayOfWeek,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime,
+        }))
+      );
+    }
+
+    return { classId };
+  });
+}
+
 export async function updateClass(id: number, data: Partial<typeof classes.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.update(classes).set(data).where(eq(classes.id, id));
+}
+
+export async function softDeleteClass(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db
+    .update(classes)
+    .set({ deletedAt: new Date(), isActive: false })
+    .where(eq(classes.id, id));
 }
 
 export async function getClassSchedules(classId: number) {

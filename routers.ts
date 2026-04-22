@@ -16,8 +16,9 @@ import {
   softDeleteStudent,
   getClasses,
   getClassById,
-  createClass,
+  createClassWithSchedules,
   updateClass,
+  softDeleteClass,
   getClassSchedules,
   createClassSchedule,
   updateClassSchedule,
@@ -534,10 +535,19 @@ export const appRouter = router({
           capacity: z.number().default(20),
           room: z.string().optional(),
           description: z.string().optional(),
+          schedules: z
+            .array(
+              z.object({
+                dayOfWeek: z.number().min(0).max(6),
+                startTime: z.string(),
+                endTime: z.string(),
+              })
+            )
+            .min(1, "최소 1개 이상의 시간표를 입력해주세요."),
         })
       )
       .mutation(async ({ input }) => {
-        const result = await createClass({
+        const result = await createClassWithSchedules({
           name: input.name,
           subject: input.subject,
           teacherId: input.teacherId,
@@ -545,7 +555,7 @@ export const appRouter = router({
           room: input.room || null,
           description: input.description || null,
           isActive: true,
-        });
+        }, input.schedules);
         console.log("[API] Created class:", result);
         return result;
       }),
@@ -571,7 +581,7 @@ export const appRouter = router({
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        await updateClass(input.id, { isActive: false });
+        await softDeleteClass(input.id);
         console.log("[API] Deleted class:", input.id);
         return { success: true };
       }),

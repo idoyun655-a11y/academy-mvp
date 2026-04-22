@@ -8,6 +8,15 @@ import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function AdminClasses() {
   const { user, isAuthenticated } = useAuth();
+  const dayOptions = [
+    { value: 1, label: "월요일" },
+    { value: 2, label: "화요일" },
+    { value: 3, label: "수요일" },
+    { value: 4, label: "목요일" },
+    { value: 5, label: "금요일" },
+    { value: 6, label: "토요일" },
+    { value: 0, label: "일요일" },
+  ];
   const [searchName, setSearchName] = useState("");
   const [page, setPage] = useState(0);
   const [showModal, setShowModal] = useState(false);
@@ -16,11 +25,11 @@ export default function AdminClasses() {
     subject: "",
     teacher: "",
     capacity: "20",
-    dayOfWeek: "Monday",
-    startTime: "09:00",
-    endTime: "10:00",
     room: "",
   });
+  const [schedules, setSchedules] = useState([
+    { dayOfWeek: 1, startTime: "09:00", endTime: "10:00" },
+  ]);
 
   const { data: classesData, isLoading, refetch } = trpc.classes.list.useQuery({
     limit: 20,
@@ -36,15 +45,23 @@ export default function AdminClasses() {
         subject: "",
         teacher: "",
         capacity: "20",
-        dayOfWeek: "Monday",
-        startTime: "09:00",
-        endTime: "10:00",
         room: "",
       });
+      setSchedules([{ dayOfWeek: 1, startTime: "09:00", endTime: "10:00" }]);
       alert("반이 등록되었습니다.");
     },
     onError: (error) => {
       alert("등록 실패: " + error.message);
+    },
+  });
+
+  const deleteClassMutation = trpc.classes.delete.useMutation({
+    onSuccess: () => {
+      refetch();
+      alert("반이 삭제되었습니다.");
+    },
+    onError: (error) => {
+      alert("삭제 실패: " + error.message);
     },
   });
 
@@ -55,17 +72,9 @@ export default function AdminClasses() {
   const classes = classesData?.data || [];
   const total = classesData?.total || 0;
 
-  const getDayOfWeekKorean = (day: string) => {
-    const dayMap: Record<string, string> = {
-      Monday: "월",
-      Tuesday: "화",
-      Wednesday: "수",
-      Thursday: "목",
-      Friday: "금",
-      Saturday: "토",
-      Sunday: "일",
-    };
-    return dayMap[day] || day;
+  const getDayLabelByNumber = (dayOfWeek: number) => {
+    const day = dayOptions.find((item) => item.value === dayOfWeek);
+    return day?.label ?? "요일 미설정";
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -74,12 +83,17 @@ export default function AdminClasses() {
       alert("반명과 과목은 필수입니다.");
       return;
     }
+    if (schedules.length === 0) {
+      alert("최소 1개 이상의 시간표를 추가해주세요.");
+      return;
+    }
     createClassMutation.mutate({
       name: formData.name,
       subject: formData.subject,
       teacherId: 1, // 현재 사용자 ID
       capacity: parseInt(formData.capacity) || 20,
       room: formData.room || undefined,
+      schedules,
     });
   };
 
@@ -174,13 +188,26 @@ export default function AdminClasses() {
                       <span
                         style={{ color: theme.colors.text.tertiary }}
                       >
-                        시간:
+                        시간표:
                       </span>
-                      <p
-                        style={{ color: theme.colors.text.secondary }}
-                      >
-                        {getDayOfWeekKorean(cls.dayOfWeek)} {cls.startTime} ~ {cls.endTime}
-                      </p>
+                      {cls.schedules && cls.schedules.length > 0 ? (
+                        <div
+                          className="mt-1 space-y-1"
+                          style={{ color: theme.colors.text.secondary }}
+                        >
+                          {cls.schedules.map((schedule: any) => (
+                            <p key={schedule.id}>
+                              {getDayLabelByNumber(schedule.dayOfWeek)} {schedule.startTime} ~ {schedule.endTime}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p
+                          style={{ color: theme.colors.text.secondary }}
+                        >
+                          미설정
+                        </p>
+                      )}
                     </div>
                     <div>
                       <span
@@ -195,6 +222,18 @@ export default function AdminClasses() {
                       </p>
                     </div>
                   </div>
+                  <Button
+                    variant="ghost"
+                    className="w-full !text-red-500 hover:!bg-red-50"
+                    onClick={() => {
+                      const shouldDelete = confirm(`'${cls.name}' 반을 삭제하시겠습니까?`);
+                      if (!shouldDelete) return;
+                      deleteClassMutation.mutate({ id: cls.id });
+                    }}
+                    disabled={deleteClassMutation.isPending}
+                  >
+                    반 삭제
+                  </Button>
                 </div>
               </Card>
             ))}
@@ -327,79 +366,99 @@ export default function AdminClasses() {
                 />
               </div>
 
-              {/* 요일 */}
+              {/* 시간표 */}
               <div>
-                <label
-                  className="block text-sm font-medium mb-2"
-                  style={{ color: theme.colors.text.secondary }}
-                >
-                  요일
-                </label>
-                <select
-                  value={formData.dayOfWeek}
-                  onChange={(e) =>
-                    setFormData({ ...formData, dayOfWeek: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded border"
-                  style={{
-                    backgroundColor: theme.colors.background.secondary,
-                    borderColor: theme.colors.border.primary,
-                    color: theme.colors.text.primary,
-                  }}
-                >
-                  <option value="Monday">월요일</option>
-                  <option value="Tuesday">화요일</option>
-                  <option value="Wednesday">수요일</option>
-                  <option value="Thursday">목요일</option>
-                  <option value="Friday">금요일</option>
-                  <option value="Saturday">토요일</option>
-                  <option value="Sunday">일요일</option>
-                </select>
-              </div>
-
-              {/* 시간 */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
+                <div className="flex items-center justify-between mb-2">
                   <label
-                    className="block text-sm font-medium mb-2"
+                    className="block text-sm font-medium"
                     style={{ color: theme.colors.text.secondary }}
                   >
-                    시작시간
+                    요일별 시간표 *
                   </label>
-                  <input
-                    type="time"
-                    value={formData.startTime}
-                    onChange={(e) =>
-                      setFormData({ ...formData, startTime: e.target.value })
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setSchedules([
+                        ...schedules,
+                        { dayOfWeek: 1, startTime: "09:00", endTime: "10:00" },
+                      ])
                     }
-                    className="w-full px-3 py-2 rounded border"
-                    style={{
-                      backgroundColor: theme.colors.background.secondary,
-                      borderColor: theme.colors.border.primary,
-                      color: theme.colors.text.primary,
-                    }}
-                  />
+                  >
+                    시간대 추가
+                  </Button>
                 </div>
-                <div>
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: theme.colors.text.secondary }}
-                  >
-                    종료시간
-                  </label>
-                  <input
-                    type="time"
-                    value={formData.endTime}
-                    onChange={(e) =>
-                      setFormData({ ...formData, endTime: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded border"
-                    style={{
-                      backgroundColor: theme.colors.background.secondary,
-                      borderColor: theme.colors.border.primary,
-                      color: theme.colors.text.primary,
-                    }}
-                  />
+
+                <div className="space-y-2">
+                  {schedules.map((schedule, index) => (
+                    <div key={`${schedule.dayOfWeek}-${index}`} className="grid grid-cols-12 gap-2">
+                      <select
+                        value={schedule.dayOfWeek}
+                        onChange={(e) => {
+                          const newSchedules = [...schedules];
+                          newSchedules[index].dayOfWeek = Number(e.target.value);
+                          setSchedules(newSchedules);
+                        }}
+                        className="col-span-4 px-3 py-2 rounded border"
+                        style={{
+                          backgroundColor: theme.colors.background.secondary,
+                          borderColor: theme.colors.border.primary,
+                          color: theme.colors.text.primary,
+                        }}
+                      >
+                        {dayOptions.map((day) => (
+                          <option key={day.value} value={day.value}>
+                            {day.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="time"
+                        value={schedule.startTime}
+                        onChange={(e) => {
+                          const newSchedules = [...schedules];
+                          newSchedules[index].startTime = e.target.value;
+                          setSchedules(newSchedules);
+                        }}
+                        className="col-span-3 px-3 py-2 rounded border"
+                        style={{
+                          backgroundColor: theme.colors.background.secondary,
+                          borderColor: theme.colors.border.primary,
+                          color: theme.colors.text.primary,
+                        }}
+                      />
+
+                      <input
+                        type="time"
+                        value={schedule.endTime}
+                        onChange={(e) => {
+                          const newSchedules = [...schedules];
+                          newSchedules[index].endTime = e.target.value;
+                          setSchedules(newSchedules);
+                        }}
+                        className="col-span-3 px-3 py-2 rounded border"
+                        style={{
+                          backgroundColor: theme.colors.background.secondary,
+                          borderColor: theme.colors.border.primary,
+                          color: theme.colors.text.primary,
+                        }}
+                      />
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="col-span-2 !text-red-500"
+                        onClick={() =>
+                          setSchedules(schedules.filter((_, scheduleIndex) => scheduleIndex !== index))
+                        }
+                        disabled={schedules.length === 1}
+                      >
+                        삭제
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
