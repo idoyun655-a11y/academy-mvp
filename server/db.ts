@@ -11,6 +11,7 @@ import {
   classes,
   examSchedules,
   grades,
+  studentExamRequests,
   type InsertUser,
   notices,
   notificationLogs,
@@ -235,6 +236,13 @@ async function ensureRuntimeDatabaseSchema() {
       "attendancePin",
       "`attendancePin` varchar(4)",
     );
+    await ensureColumn(
+      connection,
+      databaseName,
+      "students",
+      "schoolName",
+      "`schoolName` varchar(255)",
+    );
     await ensureUniqueIndex(
       connection,
       databaseName,
@@ -254,6 +262,27 @@ async function ensureRuntimeDatabaseSchema() {
         \`createdAt\` timestamp NOT NULL DEFAULT (now()),
         \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
         CONSTRAINT \`commuteLogs_id\` PRIMARY KEY(\`id\`)
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`studentExamRequests\` (
+        \`id\` int AUTO_INCREMENT NOT NULL,
+        \`studentId\` int NOT NULL,
+        \`schoolNameSnapshot\` varchar(255),
+        \`title\` varchar(150) NOT NULL,
+        \`examDate\` datetime NOT NULL,
+        \`examEndDate\` datetime,
+        \`subject\` varchar(100),
+        \`description\` text,
+        \`status\` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+        \`reviewedByUserId\` int,
+        \`reviewedAt\` datetime,
+        \`reviewNote\` text,
+        \`linkedExamScheduleId\` int,
+        \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+        \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT \`studentExamRequests_id\` PRIMARY KEY(\`id\`)
       )
     `);
     await ensureUniqueIndex(
@@ -332,6 +361,7 @@ function normalizeStudentRecord<T extends Record<string, any>>(student: T): T {
   return {
     ...student,
     attendancePin: student.attendancePin ?? null,
+    schoolName: student.schoolName ?? null,
     schoolLevel: student.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
     gradeLevel: student.gradeLevel ?? DEFAULT_STUDENT_META.gradeLevel,
     lifecycleStatus:
@@ -345,6 +375,13 @@ function normalizeStudentRecord<T extends Record<string, any>>(student: T): T {
 
 function paginate<T>(items: T[], limit: number, offset: number) {
   return items.slice(offset, offset + limit);
+}
+
+function extractInsertedId(result: any) {
+  const rawId =
+    result?.id ?? result?.insertId ?? result?.[0]?.id ?? result?.[0]?.insertId;
+  const parsedId = Number(rawId ?? 0);
+  return Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null;
 }
 
 function sortByDateDesc<T extends Record<string, any>>(
@@ -895,6 +932,7 @@ export async function createStudent(data: typeof students.$inferInsert) {
         email: data.email ? normalizeEmail(data.email) : null,
         phone: data.phone ?? null,
         attendancePin: data.attendancePin ?? null,
+        schoolName: data.schoolName ?? null,
         parentPhone: data.parentPhone ?? null,
         parentName: data.parentName ?? null,
         schoolLevel: data.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
@@ -956,6 +994,7 @@ export async function updateStudent(
       if (data.phone !== undefined) student.phone = data.phone ?? null;
       if (data.attendancePin !== undefined)
         student.attendancePin = data.attendancePin ?? null;
+      if (data.schoolName !== undefined) student.schoolName = data.schoolName ?? null;
       if (data.parentPhone !== undefined)
         student.parentPhone = data.parentPhone ?? null;
       if (data.parentName !== undefined)
@@ -1786,6 +1825,183 @@ export async function getGradeStats(studentId: number) {
   return { mockExams, schoolGrades };
 }
 
+export type StudentExamRequestStatus = "pending" | "approved" | "rejected";
+
+type StudentExamRequestFilters = {
+  studentId?: number;
+  status?: StudentExamRequestStatus;
+};
+
+function sortStudentExamRequests<T extends Record<string, any>>(items: T[]) {
+  return [...items].sort((left, right) => {
+    const leftExamTime = new Date(left.examDate ?? 0).getTime();
+    const rightExamTime = new Date(right.examDate ?? 0).getTime();
+    if (leftExamTime !== rightExamTime) return leftExamTime - rightExamTime;
+    return new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime();
+  });
+}
+
+export async function listStudentExamRequests(filters: StudentExamRequestFilters = {}) {
+  const db = await getDb();
+  if (!db) {
+    const store = await readLocalStore();
+    const items = store.studentExamRequests
+      .filter((request) => {
+        if (filters.studentId && request.studentId !== filters.studentId) return false;
+        if (filters.status && request.status !== filters.status) return false;
+        return true;
+      })
+      .map((request) => {
+        const student = store.students.find(
+          (entry) => entry.id === request.studentId && isActiveRecord(entry),
+        );
+        return {
+          ...request,
+          studentName: student?.name ?? "학생",
+          schoolNameSnapshot: request.schoolNameSnapshot ?? student?.schoolName ?? null,
+        };
+      });
+
+    return sortStudentExamRequests(items);
+  }
+
+  const conditions: any[] = [];
+  if (filters.studentId) {
+    conditions.push(eq(studentExamRequests.studentId, filters.studentId));
+  }
+  if (filters.status) {
+    conditions.push(eq(studentExamRequests.status, filters.status));
+  }
+
+  const rows = await db
+    .select({
+      id: studentExamRequests.id,
+      studentId: studentExamRequests.studentId,
+      schoolNameSnapshot: studentExamRequests.schoolNameSnapshot,
+      title: studentExamRequests.title,
+      examDate: studentExamRequests.examDate,
+      examEndDate: studentExamRequests.examEndDate,
+      subject: studentExamRequests.subject,
+      description: studentExamRequests.description,
+      status: studentExamRequests.status,
+      reviewedByUserId: studentExamRequests.reviewedByUserId,
+      reviewedAt: studentExamRequests.reviewedAt,
+      reviewNote: studentExamRequests.reviewNote,
+      linkedExamScheduleId: studentExamRequests.linkedExamScheduleId,
+      createdAt: studentExamRequests.createdAt,
+      updatedAt: studentExamRequests.updatedAt,
+      studentName: students.name,
+    })
+    .from(studentExamRequests)
+    .innerJoin(students, eq(studentExamRequests.studentId, students.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+  return sortStudentExamRequests(rows);
+}
+
+export async function getStudentExamRequestById(id: number) {
+  const requests = await listStudentExamRequests();
+  return requests.find((request) => request.id === id) ?? null;
+}
+
+export async function createStudentExamRequest(data: {
+  studentId: number;
+  schoolNameSnapshot?: string | null;
+  title: string;
+  examDate: Date;
+  examEndDate?: Date | null;
+  subject?: string | null;
+  description?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) {
+    return updateLocalStore((store) => {
+      const currentTime = nowIso();
+      const request = {
+        id: getNextLocalId(store, "studentExamRequests"),
+        studentId: data.studentId,
+        schoolNameSnapshot: data.schoolNameSnapshot ?? null,
+        title: data.title,
+        examDate: toIso(data.examDate),
+        examEndDate: toIso(data.examEndDate) ?? null,
+        subject: data.subject ?? null,
+        description: data.description ?? null,
+        status: "pending" as StudentExamRequestStatus,
+        reviewedByUserId: null,
+        reviewedAt: null,
+        reviewNote: null,
+        linkedExamScheduleId: null,
+        createdAt: currentTime,
+        updatedAt: currentTime,
+      };
+      store.studentExamRequests.push(request);
+      return getStudentExamRequestById(request.id);
+    });
+  }
+
+  const result: any = await db.insert(studentExamRequests).values({
+    studentId: data.studentId,
+    schoolNameSnapshot: data.schoolNameSnapshot ?? null,
+    title: data.title,
+    examDate: data.examDate,
+    examEndDate: data.examEndDate ?? null,
+    subject: data.subject ?? null,
+    description: data.description ?? null,
+    status: "pending",
+  });
+  const insertedId = extractInsertedId(result);
+  return insertedId ? getStudentExamRequestById(insertedId) : null;
+}
+
+export async function updateStudentExamRequest(
+  id: number,
+  data: Partial<typeof studentExamRequests.$inferInsert>,
+) {
+  const db = await getDb();
+  if (!db) {
+    return updateLocalStore((store) => {
+      const request = store.studentExamRequests.find((entry) => entry.id === id);
+      if (!request) throw new Error("Student exam request not found");
+
+      if (data.schoolNameSnapshot !== undefined) {
+        request.schoolNameSnapshot = data.schoolNameSnapshot ?? null;
+      }
+      if (data.title !== undefined) request.title = data.title;
+      if (data.examDate !== undefined) request.examDate = toIso(data.examDate);
+      if (data.examEndDate !== undefined) request.examEndDate = toIso(data.examEndDate);
+      if (data.subject !== undefined) request.subject = data.subject ?? null;
+      if (data.description !== undefined) request.description = data.description ?? null;
+      if (data.status !== undefined) request.status = data.status;
+      if (data.reviewedByUserId !== undefined) {
+        request.reviewedByUserId = data.reviewedByUserId ?? null;
+      }
+      if (data.reviewedAt !== undefined) request.reviewedAt = toIso(data.reviewedAt);
+      if (data.reviewNote !== undefined) request.reviewNote = data.reviewNote ?? null;
+      if (data.linkedExamScheduleId !== undefined) {
+        request.linkedExamScheduleId = data.linkedExamScheduleId ?? null;
+      }
+      request.updatedAt = nowIso();
+      return getStudentExamRequestById(id);
+    });
+  }
+
+  await db.update(studentExamRequests).set(data).where(eq(studentExamRequests.id, id));
+  return getStudentExamRequestById(id);
+}
+
+export async function deleteStudentExamRequest(id: number) {
+  const db = await getDb();
+  if (!db) {
+    return updateLocalStore((store) => {
+      store.studentExamRequests = store.studentExamRequests.filter((entry) => entry.id !== id);
+      return { success: true };
+    });
+  }
+
+  await db.delete(studentExamRequests).where(eq(studentExamRequests.id, id));
+  return { success: true };
+}
+
 export async function createExamSchedule(data: {
   examName: string;
   examDate: Date;
@@ -1812,7 +2028,16 @@ export async function createExamSchedule(data: {
     });
   }
 
-  return db.insert(examSchedules).values(data);
+  const result: any = await db.insert(examSchedules).values(data);
+  const insertedId = extractInsertedId(result);
+  if (!insertedId) return result;
+
+  const rows = await db
+    .select()
+    .from(examSchedules)
+    .where(eq(examSchedules.id, insertedId))
+    .limit(1);
+  return rows[0] ?? result;
 }
 
 export async function listExamSchedules() {

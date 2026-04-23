@@ -47,6 +47,7 @@ export const students = mysqlTable("students", {
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 20 }),
   attendancePin: varchar("attendancePin", { length: 4 }).unique(),
+  schoolName: varchar("schoolName", { length: 255 }),
   parentPhone: varchar("parentPhone", { length: 20 }),
   parentName: varchar("parentName", { length: 100 }),
   schoolLevel: mysqlEnum("schoolLevel", ["elementary", "middle", "high", "other"])
@@ -339,6 +340,29 @@ export const examSchedules = mysqlTable("examSchedules", {
 
 export type ExamSchedule = typeof examSchedules.$inferSelect;
 export type InsertExamSchedule = typeof examSchedules.$inferInsert;
+
+export const studentExamRequests = mysqlTable("studentExamRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  studentId: int("studentId").notNull(),
+  schoolNameSnapshot: varchar("schoolNameSnapshot", { length: 255 }),
+  title: varchar("title", { length: 150 }).notNull(),
+  examDate: datetime("examDate").notNull(),
+  examEndDate: datetime("examEndDate"),
+  subject: varchar("subject", { length: 100 }),
+  description: text("description"),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"])
+    .default("pending")
+    .notNull(),
+  reviewedByUserId: int("reviewedByUserId"),
+  reviewedAt: datetime("reviewedAt"),
+  reviewNote: text("reviewNote"),
+  linkedExamScheduleId: int("linkedExamScheduleId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type StudentExamRequest = typeof studentExamRequests.$inferSelect;
+export type InsertStudentExamRequest = typeof studentExamRequests.$inferInsert;
 
 /**
  * AcademyEvents table: 학원 행사 및 이벤트

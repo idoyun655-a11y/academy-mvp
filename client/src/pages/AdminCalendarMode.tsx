@@ -5,6 +5,7 @@ import { LIVE_QUERY_OPTIONS } from "@/lib/portal";
 import { trpc } from "@/lib/trpc";
 import { theme } from "@/styles/design-system";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 type CalendarItem = {
@@ -131,6 +132,11 @@ export default function AdminCalendarMode() {
 
   const examsQuery = trpc.calendar.listExams.useQuery(undefined, LIVE_QUERY_OPTIONS);
   const eventsQuery = trpc.calendar.listEvents.useQuery(undefined, LIVE_QUERY_OPTIONS);
+  const studentRequestsQuery = trpc.calendar.listStudentRequests.useQuery(
+    { status: "pending" },
+    LIVE_QUERY_OPTIONS,
+  );
+  const reviewStudentRequest = trpc.calendar.reviewStudentRequest.useMutation();
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -199,6 +205,32 @@ export default function AdminCalendarMode() {
       })
       .slice(0, 8);
   }, [items, todayKey]);
+  const pendingStudentRequests = (studentRequestsQuery.data ?? []) as Array<any>;
+
+  const refreshData = async () => {
+    await Promise.all([
+      examsQuery.refetch(),
+      eventsQuery.refetch(),
+      studentRequestsQuery.refetch(),
+    ]);
+  };
+
+  const handleReviewStudentRequest = async (
+    requestId: number,
+    status: "approved" | "rejected",
+  ) => {
+    try {
+      await reviewStudentRequest.mutateAsync({ id: requestId, status });
+      toast.success(
+        status === "approved"
+          ? "학생 시험 요청을 승인했습니다."
+          : "학생 시험 요청을 반려했습니다.",
+      );
+      await refreshData();
+    } catch (error: any) {
+      toast.error(error?.message || "학생 시험 요청 처리 중 오류가 발생했습니다.");
+    }
+  };
 
   const toggleFullscreen = async () => {
     try {
@@ -553,6 +585,86 @@ export default function AdminCalendarMode() {
                           {item.description}
                         </p>
                       ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+
+            <Card variant="elevated" padding="lg" className="xl:min-h-0">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.18em]" style={{ color: theme.colors.text.tertiary }}>
+                    Pending Review
+                  </p>
+                  <h3 className="mt-1.5 text-xl font-semibold 2xl:text-2xl" style={{ color: theme.colors.text.primary }}>
+                    학생 제출 시험
+                  </h3>
+                </div>
+                <Badge variant="warning" size="sm">
+                  {pendingStudentRequests.length}건
+                </Badge>
+              </div>
+
+              <div className="mt-4 space-y-3 xl:max-h-full xl:overflow-y-auto xl:pr-1">
+                {pendingStudentRequests.length === 0 ? (
+                  <EmptyState
+                    title="승인 대기 요청이 없습니다."
+                    description="학생이 시험 일정을 등록하면 여기에 표시됩니다."
+                  />
+                ) : (
+                  pendingStudentRequests.map((request) => (
+                    <div
+                      key={`request-${request.id}`}
+                      className="rounded-[20px] border p-3.5"
+                      style={{
+                        backgroundColor: theme.colors.background.secondary,
+                        borderColor: theme.colors.border.primary,
+                      }}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="warning" size="sm">
+                          승인대기
+                        </Badge>
+                        <span className="text-xs" style={{ color: theme.colors.text.tertiary }}>
+                          {request.studentName} · {request.schoolNameSnapshot || "학교 미입력"}
+                        </span>
+                      </div>
+                      <p className="mt-2.5 text-base font-semibold 2xl:text-lg" style={{ color: theme.colors.text.primary }}>
+                        {request.title}
+                      </p>
+                      <p className="mt-1.5 text-sm leading-6" style={{ color: theme.colors.text.secondary }}>
+                        {new Date(request.examDate).toLocaleDateString("ko-KR", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                          weekday: "short",
+                        })}
+                        {request.subject ? ` · ${request.subject}` : ""}
+                      </p>
+                      {request.description ? (
+                        <p className="mt-1.5 text-sm leading-6" style={{ color: theme.colors.text.secondary }}>
+                          {request.description}
+                        </p>
+                      ) : null}
+
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          size="xs"
+                          onClick={() => handleReviewStudentRequest(request.id, "approved")}
+                          disabled={reviewStudentRequest.isPending}
+                        >
+                          승인
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="danger"
+                          onClick={() => handleReviewStudentRequest(request.id, "rejected")}
+                          disabled={reviewStudentRequest.isPending}
+                        >
+                          반려
+                        </Button>
+                      </div>
                     </div>
                   ))
                 )}

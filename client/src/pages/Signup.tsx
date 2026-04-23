@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import Button from "@/components/common/Button";
 import { Card } from "@/components/common/CommonComponents";
-import { theme } from "@/styles/design-system";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
+import { theme } from "@/styles/design-system";
 
 function getRoleHome(role?: string) {
   if (role === "admin" || role === "teacher") return "/admin";
@@ -12,23 +12,26 @@ function getRoleHome(role?: string) {
   return "/student";
 }
 
+const INITIAL_FORM = {
+  role: "student" as "student" | "parent",
+  email: "",
+  password: "",
+  passwordConfirm: "",
+  name: "",
+  phone: "",
+  attendancePin: "",
+  schoolName: "",
+  parentName: "",
+  parentPhone: "",
+  dateOfBirth: "",
+  address: "",
+  notes: "",
+};
+
 export default function Signup() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
-  const [formData, setFormData] = useState({
-    role: "student" as "student" | "parent",
-    email: "",
-    password: "",
-    passwordConfirm: "",
-    name: "",
-    phone: "",
-    attendancePin: "",
-    parentName: "",
-    parentPhone: "",
-    dateOfBirth: "",
-    address: "",
-    notes: "",
-  });
+  const [formData, setFormData] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [emailAvailable, setEmailAvailable] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +43,14 @@ export default function Signup() {
       enabled:
         formData.email.length > 0 &&
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email),
+    },
+  );
+  const schoolSearchQuery = trpc.schoolDirectory.search.useQuery(
+    { query: formData.schoolName },
+    {
+      enabled:
+        formData.role === "student" && formData.schoolName.trim().length > 0,
+      staleTime: 10_000,
     },
   );
   const signupMutation = trpc.auth.signup.useMutation();
@@ -79,7 +90,7 @@ export default function Signup() {
       nextErrors.passwordConfirm = "비밀번호 확인이 일치하지 않습니다.";
     }
 
-    if (!formData.name) {
+    if (!formData.name.trim()) {
       nextErrors.name = "이름을 입력해 주세요.";
     }
 
@@ -89,10 +100,14 @@ export default function Signup() {
       } else if (!/^\d{4}$/.test(formData.attendancePin)) {
         nextErrors.attendancePin = "출석번호는 숫자 4자리여야 합니다.";
       }
+
+      if (!formData.schoolName.trim()) {
+        nextErrors.schoolName = "학교명을 입력해 주세요.";
+      }
     }
 
-    if (formData.role === "student" && formData.parentPhone && !formData.parentName) {
-      nextErrors.parentName = "보호자 연락처를 적었다면 보호자 이름도 입력해 주세요.";
+    if (formData.role === "student" && formData.parentPhone && !formData.parentName.trim()) {
+      nextErrors.parentName = "보호자 연락처를 입력했다면 보호자 이름도 입력해 주세요.";
     }
 
     setErrors(nextErrors);
@@ -112,7 +127,10 @@ export default function Signup() {
         name: formData.name,
         phone: formData.phone || undefined,
         role: formData.role,
-        attendancePin: formData.role === "student" ? formData.attendancePin : undefined,
+        attendancePin:
+          formData.role === "student" ? formData.attendancePin : undefined,
+        schoolName:
+          formData.role === "student" ? formData.schoolName.trim() : undefined,
         parentName: formData.parentName || undefined,
         parentPhone: formData.parentPhone || undefined,
         dateOfBirth: formData.dateOfBirth || undefined,
@@ -160,12 +178,14 @@ export default function Signup() {
     );
   }
 
+  const schoolSuggestions = schoolSearchQuery.data?.items ?? [];
+
   return (
     <div
       className="flex min-h-screen items-center justify-center px-4 py-12"
       style={{ backgroundColor: theme.colors.background.primary }}
     >
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-3xl">
         <div className="mb-8 text-center">
           <div className="mb-4 flex items-center justify-center gap-3">
             <img src="/logo.png" alt="ET" className="h-10 w-10 rounded-xl object-cover" />
@@ -194,7 +214,14 @@ export default function Signup() {
               </label>
               <select
                 value={formData.role}
-                onChange={(event) => updateField("role", event.target.value as "student" | "parent")}
+                onChange={(event) =>
+                  setFormData((current) => ({
+                    ...current,
+                    role: event.target.value as "student" | "parent",
+                    schoolName:
+                      event.target.value === "student" ? current.schoolName : "",
+                  }))
+                }
                 className="w-full rounded-lg border px-3 py-3"
                 style={{
                   backgroundColor: theme.colors.background.primary,
@@ -330,7 +357,10 @@ export default function Signup() {
                   <input
                     value={formData.attendancePin}
                     onChange={(event) =>
-                      updateField("attendancePin", event.target.value.replace(/\D/g, "").slice(0, 4))
+                      updateField(
+                        "attendancePin",
+                        event.target.value.replace(/\D/g, "").slice(0, 4),
+                      )
                     }
                     inputMode="numeric"
                     maxLength={4}
@@ -346,6 +376,40 @@ export default function Signup() {
                       {errors.attendancePin}
                     </p>
                   ) : null}
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
+                    학교명
+                  </label>
+                  <input
+                    list="school-directory-options"
+                    value={formData.schoolName}
+                    onChange={(event) => updateField("schoolName", event.target.value)}
+                    placeholder="학교 이름 입력"
+                    className="w-full rounded-lg border px-3 py-3"
+                    style={{
+                      backgroundColor: theme.colors.background.primary,
+                      borderColor: theme.colors.border.primary,
+                      color: theme.colors.text.primary,
+                    }}
+                  />
+                  <datalist id="school-directory-options">
+                    {schoolSuggestions.map((item) => (
+                      <option key={`${item.schoolLevel}-${item.schoolName}`} value={item.schoolName}>
+                        {item.address || ""}
+                      </option>
+                    ))}
+                  </datalist>
+                  {errors.schoolName ? (
+                    <p className="mt-1 text-sm" style={{ color: theme.colors.status.error }}>
+                      {errors.schoolName}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs" style={{ color: theme.colors.text.secondary }}>
+                      광주 학교 목록이 자동 추천되며, 목록에 없어도 직접 입력할 수 있습니다.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -384,27 +448,27 @@ export default function Signup() {
                     }}
                   />
                 </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
-                    생년월일
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.dateOfBirth}
-                    onChange={(event) => updateField("dateOfBirth", event.target.value)}
-                    className="w-full rounded-lg border px-3 py-3"
-                    style={{
-                      backgroundColor: theme.colors.background.primary,
-                      borderColor: theme.colors.border.primary,
-                      color: theme.colors.text.primary,
-                    }}
-                  />
-                </div>
               </>
             ) : null}
 
-            <div className="md:col-span-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
+                생년월일
+              </label>
+              <input
+                type="date"
+                value={formData.dateOfBirth}
+                onChange={(event) => updateField("dateOfBirth", event.target.value)}
+                className="w-full rounded-lg border px-3 py-3"
+                style={{
+                  backgroundColor: theme.colors.background.primary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.primary,
+                }}
+              />
+            </div>
+
+            <div>
               <label className="mb-2 block text-sm font-medium" style={{ color: theme.colors.text.primary }}>
                 주소
               </label>
@@ -427,8 +491,7 @@ export default function Signup() {
               <textarea
                 value={formData.notes}
                 onChange={(event) => updateField("notes", event.target.value)}
-                rows={4}
-                className="w-full rounded-lg border px-3 py-3"
+                className="min-h-28 w-full rounded-lg border px-3 py-3"
                 style={{
                   backgroundColor: theme.colors.background.primary,
                   borderColor: theme.colors.border.primary,
@@ -438,43 +501,24 @@ export default function Signup() {
             </div>
 
             {errors.submit ? (
-              <div
-                className="rounded-lg border p-3 md:col-span-2"
-                style={{
-                  backgroundColor: theme.colors.background.tertiary,
-                  borderColor: theme.colors.border.primary,
-                  color: theme.colors.status.error,
-                }}
-              >
+              <div className="md:col-span-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {errors.submit}
               </div>
             ) : null}
 
             {successMessage ? (
-              <div
-                className="rounded-lg border p-3 md:col-span-2"
-                style={{
-                  backgroundColor: theme.colors.background.tertiary,
-                  borderColor: theme.colors.border.primary,
-                  color: theme.colors.status.success,
-                }}
-              >
+              <div className="md:col-span-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                 {successMessage}
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-3 md:col-span-2">
-              <Button type="submit" isFullWidth disabled={isLoading || emailAvailable === false}>
-                {isLoading ? "가입 처리 중..." : "회원가입"}
+            <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row">
+              <Button type="submit" className="flex-1" isLoading={isLoading}>
+                회원가입
               </Button>
-              <button
-                type="button"
-                onClick={() => setLocation("/login")}
-                className="text-sm hover:underline"
-                style={{ color: theme.colors.text.secondary }}
-              >
-                로그인으로 돌아가기
-              </button>
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setLocation("/login")}>
+                로그인으로 이동
+              </Button>
             </div>
           </form>
         </Card>

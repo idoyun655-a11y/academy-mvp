@@ -13,6 +13,7 @@ import AdminPayments from "@/pages/AdminPayments";
 import AdminSettings from "./pages/AdminSettings";
 import AdminNotificationSettings from "@/pages/AdminNotificationSettings";
 import StudentHome from "@/pages/StudentHome";
+import StudentCalendar from "@/pages/StudentCalendar";
 import StudentSchedule from "@/pages/StudentSchedule";
 import StudentNotices from "@/pages/StudentNotices";
 import StudentAttendance from "@/pages/StudentAttendance";
@@ -47,6 +48,7 @@ function Router() {
       <Route path={"/admin/notifications"} component={AdminNotificationSettings} />
       {/* Student Routes */}
       <Route path={"/student"} component={StudentHome} />
+      <Route path={"/student/calendar"} component={StudentCalendar} />
       <Route path={"/student/schedule"} component={StudentSchedule} />
       <Route path={"/student/notices"} component={StudentNotices} />
       <Route path={"/student/attendance"} component={StudentAttendance} />

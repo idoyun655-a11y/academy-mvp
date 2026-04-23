@@ -83,12 +83,17 @@ export default function AdminCalendarPanel() {
 
   const examsQuery = trpc.calendar.listExams.useQuery(undefined, LIVE_QUERY_OPTIONS);
   const eventsQuery = trpc.calendar.listEvents.useQuery(undefined, LIVE_QUERY_OPTIONS);
+  const studentRequestsQuery = trpc.calendar.listStudentRequests.useQuery(
+    { status: "pending" },
+    LIVE_QUERY_OPTIONS,
+  );
   const createExam = trpc.calendar.createExam.useMutation();
   const updateExam = trpc.calendar.updateExam.useMutation();
   const deleteExam = trpc.calendar.deleteExam.useMutation();
   const createEvent = trpc.calendar.createEvent.useMutation();
   const updateEvent = trpc.calendar.updateEvent.useMutation();
   const deleteEvent = trpc.calendar.deleteEvent.useMutation();
+  const reviewStudentRequest = trpc.calendar.reviewStudentRequest.useMutation();
 
   const items = useMemo<CalendarItem[]>(() => {
     const exams =
@@ -127,14 +132,17 @@ export default function AdminCalendarPanel() {
   }, [items]);
 
   const selectedItems = itemsByDay.get(selectedDate) ?? [];
+  const pendingStudentRequests = (studentRequestsQuery.data ?? []) as Array<any>;
   const days = getMonthMatrix(currentMonth);
 
   const refetchCalendar = async () => {
     await Promise.all([
       examsQuery.refetch(),
       eventsQuery.refetch(),
+      studentRequestsQuery.refetch(),
       utils.calendar.listExams.invalidate(),
       utils.calendar.listEvents.invalidate(),
+      utils.calendar.listStudentRequests.invalidate(),
     ]);
   };
 
@@ -235,6 +243,23 @@ export default function AdminCalendarPanel() {
       }
     } catch (error: any) {
       toast.error(error.message || "일정 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleReviewStudentRequest = async (
+    requestId: number,
+    status: "approved" | "rejected",
+  ) => {
+    try {
+      await reviewStudentRequest.mutateAsync({ id: requestId, status });
+      toast.success(
+        status === "approved"
+          ? "학생 시험 요청을 승인했습니다."
+          : "학생 시험 요청을 반려했습니다.",
+      );
+      await refetchCalendar();
+    } catch (error: any) {
+      toast.error(error.message || "학생 시험 요청 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -442,6 +467,117 @@ export default function AdminCalendarPanel() {
                       </Button>
                       <Button size="xs" variant="danger" onClick={() => handleDelete(item)}>
                         삭제
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card variant="elevated" padding="lg">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3
+                className="text-lg font-semibold"
+                style={{ color: theme.colors.text.primary }}
+              >
+                학생 제출 시험
+              </h3>
+              <p
+                className="text-sm mt-1"
+                style={{ color: theme.colors.text.tertiary }}
+              >
+                승인 대기 {pendingStudentRequests.length}건
+              </p>
+            </div>
+            <Badge variant="warning" size="sm">
+              승인 필요
+            </Badge>
+          </div>
+
+          <div className="space-y-3">
+            {pendingStudentRequests.length === 0 ? (
+              <div
+                className="rounded-lg border p-4 text-sm"
+                style={{
+                  backgroundColor: theme.colors.background.secondary,
+                  borderColor: theme.colors.border.primary,
+                  color: theme.colors.text.tertiary,
+                }}
+              >
+                현재 승인 대기 중인 학생 시험 등록이 없습니다.
+              </div>
+            ) : (
+              pendingStudentRequests.map((request) => (
+                <div
+                  key={request.id}
+                  className="rounded-xl border p-4"
+                  style={{
+                    backgroundColor: theme.colors.background.secondary,
+                    borderColor: theme.colors.border.primary,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p
+                          className="font-semibold"
+                          style={{ color: theme.colors.text.primary }}
+                        >
+                          {request.title}
+                        </p>
+                        <Badge variant="warning" size="sm">
+                          {request.studentName}
+                        </Badge>
+                      </div>
+                      <p
+                        className="mt-2 text-sm"
+                        style={{ color: theme.colors.text.secondary }}
+                      >
+                        {new Date(request.examDate).toLocaleDateString("ko-KR", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                          weekday: "short",
+                        })}
+                        {request.subject ? ` · ${request.subject}` : ""}
+                      </p>
+                      <p
+                        className="mt-1 text-sm"
+                        style={{ color: theme.colors.text.tertiary }}
+                      >
+                        학교: {request.schoolNameSnapshot || "미입력"}
+                      </p>
+                      {request.description ? (
+                        <p
+                          className="mt-2 text-sm leading-6"
+                          style={{ color: theme.colors.text.primary }}
+                        >
+                          {request.description}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        size="xs"
+                        onClick={() =>
+                          handleReviewStudentRequest(request.id, "approved")
+                        }
+                        isLoading={reviewStudentRequest.isPending}
+                      >
+                        승인
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="danger"
+                        onClick={() =>
+                          handleReviewStudentRequest(request.id, "rejected")
+                        }
+                        isLoading={reviewStudentRequest.isPending}
+                      >
+                        반려
                       </Button>
                     </div>
                   </div>

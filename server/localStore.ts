@@ -17,6 +17,7 @@ export type LocalStore = {
   adminLogs: any[];
   grades: any[];
   examSchedules: any[];
+  studentExamRequests: any[];
   academyEvents: any[];
   tuitionPayments: any[];
 };
@@ -40,6 +41,7 @@ const DEFAULT_STORE: LocalStore = {
     adminLogs: 1,
     grades: 1,
     examSchedules: 1,
+    studentExamRequests: 1,
     academyEvents: 1,
     tuitionPayments: 1,
   },
@@ -56,6 +58,7 @@ const DEFAULT_STORE: LocalStore = {
   adminLogs: [],
   grades: [],
   examSchedules: [],
+  studentExamRequests: [],
   academyEvents: [],
   tuitionPayments: [],
 };

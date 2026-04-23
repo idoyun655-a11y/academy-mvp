@@ -11,6 +11,7 @@ export const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
 export const STUDENT_NAV_ITEMS = [
   { href: "/student", label: "홈" },
+  { href: "/student/calendar", label: "캘린더" },
   { href: "/student/schedule", label: "시간표" },
   { href: "/student/attendance", label: "출결" },
   { href: "/student/notices", label: "공지" },

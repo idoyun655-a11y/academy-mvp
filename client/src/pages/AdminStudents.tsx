@@ -45,6 +45,7 @@ type StudentRow = {
   email?: string | null;
   phone?: string | null;
   attendancePin?: string | null;
+  schoolName?: string | null;
   parentName?: string | null;
   parentPhone?: string | null;
   schoolLevel?: SchoolLevel | null;
@@ -79,6 +80,7 @@ type StudentForm = {
   passwordConfirm: string;
   phone: string;
   attendancePin: string;
+  schoolName: string;
   parentName: string;
   parentPhone: string;
   schoolLevel: SchoolLevel;
@@ -210,6 +212,7 @@ const INITIAL_FORM: StudentForm = {
   passwordConfirm: "",
   phone: "",
   attendancePin: "",
+  schoolName: "",
   parentName: "",
   parentPhone: "",
   schoolLevel: "other",
@@ -362,6 +365,7 @@ function toStudentForm(student: StudentRow): StudentForm {
     passwordConfirm: "",
     phone: student.phone ?? "",
     attendancePin: student.attendancePin ?? "",
+    schoolName: student.schoolName ?? "",
     parentName: student.parentName ?? "",
     parentPhone: student.parentPhone ?? "",
     schoolLevel: student.schoolLevel ?? "other",
@@ -585,6 +589,7 @@ export default function AdminStudents() {
         phone: createForm.phone || undefined,
         role: "student",
         attendancePin: createForm.attendancePin,
+        schoolName: createForm.schoolName || undefined,
         parentName: createForm.parentName || undefined,
         parentPhone: createForm.parentPhone || undefined,
         schoolLevel: createForm.schoolLevel,
@@ -610,6 +615,7 @@ export default function AdminStudents() {
         name: detailForm.name,
         phone: detailForm.phone || undefined,
         attendancePin: detailForm.attendancePin || null,
+        schoolName: detailForm.schoolName || null,
         parentName: detailForm.parentName || undefined,
         parentPhone: detailForm.parentPhone || undefined,
         schoolLevel: detailForm.schoolLevel,
@@ -1238,6 +1244,18 @@ export default function AdminStudents() {
                     style={fieldStyle()}
                   />
                   <input
+                    value={detailForm.schoolName}
+                    onChange={(event) =>
+                      setDetailForm((current) => ({
+                        ...current,
+                        schoolName: event.target.value,
+                      }))
+                    }
+                    placeholder="학교명"
+                    className="rounded-lg px-3 py-3"
+                    style={fieldStyle()}
+                  />
+                  <input
                     value={detailForm.parentName}
                     onChange={(event) =>
                       setDetailForm((current) => ({
@@ -1571,6 +1589,18 @@ export default function AdminStudents() {
                   }
                   inputMode="numeric"
                   placeholder="출석번호 4자리"
+                  className="rounded-lg px-3 py-3"
+                  style={fieldStyle()}
+                />
+                <input
+                  value={createForm.schoolName}
+                  onChange={(event) =>
+                    setCreateForm((current) => ({
+                      ...current,
+                      schoolName: event.target.value,
+                    }))
+                  }
+                  placeholder="학교명"
                   className="rounded-lg px-3 py-3"
                   style={fieldStyle()}
                 />

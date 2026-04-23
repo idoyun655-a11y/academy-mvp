@@ -141,12 +141,49 @@ export default function StudentHome() {
   const { snapshots, isLoading } = useLinkedPortalData();
   const examsQuery = trpc.calendar.listExams.useQuery(undefined, LIVE_QUERY_OPTIONS);
   const eventsQuery = trpc.calendar.listEvents.useQuery(undefined, LIVE_QUERY_OPTIONS);
+  const studentRequestsQuery = trpc.calendar.listStudentRequests.useQuery(
+    undefined,
+    LIVE_QUERY_OPTIONS,
+  );
   const [, setLocation] = useLocation();
   const snapshot = snapshots[0];
   const latestMockExam = snapshot ? getLatestMockExam(snapshot.grades.mockExams) : null;
 
   const timelineHighlight = useMemo(() => {
     const today = startOfDay(new Date());
+    const ownRequests = ((studentRequestsQuery.data ?? []) as any[])
+      .filter((request) => request.status !== "rejected")
+      .filter(
+        (request) =>
+          startOfDay(new Date(request.examDate)).getTime() >= today.getTime(),
+      )
+      .sort(
+        (left, right) =>
+          new Date(left.examDate).getTime() - new Date(right.examDate).getTime(),
+      );
+
+    if (ownRequests.length > 0) {
+      const nextRequest = ownRequests[0];
+      const statusLabel =
+        nextRequest.status === "approved" ? "승인 완료" : "승인 대기";
+
+      return {
+        label: `내 시험 일정 · ${statusLabel}`,
+        title: nextRequest.title,
+        subtitle:
+          nextRequest.subject ||
+          nextRequest.description ||
+          "학생이 직접 등록한 시험 일정이 관리자 확인을 기다리고 있습니다.",
+        dday: formatDday(nextRequest.examDate),
+        dateLabel: formatDateRange(nextRequest.examDate, nextRequest.examEndDate),
+        accent: nextRequest.status === "approved" ? "#22c55e" : "#f97316",
+        soft:
+          nextRequest.status === "approved"
+            ? "rgba(34, 197, 94, 0.14)"
+            : "rgba(249, 115, 22, 0.14)",
+      };
+    }
+
     const exams = ((examsQuery.data ?? []) as CalendarExam[])
       .filter((exam) => startOfDay(new Date(exam.examDate)).getTime() >= today.getTime())
       .sort(
@@ -191,7 +228,7 @@ export default function StudentHome() {
     }
 
     return null;
-  }, [eventsQuery.data, examsQuery.data]);
+  }, [eventsQuery.data, examsQuery.data, studentRequestsQuery.data]);
 
   const regularSchedules = useMemo<RegularScheduleEntry[]>(() => {
     if (!snapshot) return [];
@@ -265,7 +302,7 @@ export default function StudentHome() {
         <Card
           variant="elevated"
           padding="md"
-          className="overflow-hidden rounded-[24px] sm:rounded-[28px]"
+          className="overflow-hidden rounded-[28px]"
           style={{
             background:
               "linear-gradient(135deg, rgba(37, 99, 235, 0.96) 0%, rgba(56, 86, 247, 0.94) 52%, rgba(45, 212, 191, 0.92) 100%)",

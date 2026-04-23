@@ -61,6 +61,7 @@ type StudentRecord = {
   email?: string | null;
   phone?: string | null;
   attendancePin?: string | null;
+  schoolName?: string | null;
   parentPhone?: string | null;
   parentName?: string | null;
   schoolLevel?: StudentOpsSchoolLevel | null;
@@ -131,6 +132,7 @@ function normalizeStudent(student: StudentRecord) {
   return {
     ...student,
     attendancePin: student.attendancePin ?? null,
+    schoolName: student.schoolName ?? null,
     schoolLevel: student.schoolLevel ?? DEFAULT_STUDENT_META.schoolLevel,
     gradeLevel: student.gradeLevel ?? DEFAULT_STUDENT_META.gradeLevel,
     lifecycleStatus: student.lifecycleStatus ?? DEFAULT_STUDENT_META.lifecycleStatus,
@@ -224,6 +226,7 @@ function matchesSearch(item: StudentOpsItem, search?: string) {
     item.email,
     item.phone,
     item.attendancePin,
+    item.schoolName,
     item.parentName,
     item.parentPhone,
     item.notes,

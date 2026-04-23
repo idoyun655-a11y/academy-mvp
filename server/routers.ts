@@ -51,9 +51,14 @@ import {
   updateUserByEmail,
   deleteUserByEmail,
   createExamSchedule,
+  createStudentExamRequest,
   listExamSchedules,
+  listStudentExamRequests,
   updateExamSchedule,
+  updateStudentExamRequest,
   deleteExamSchedule,
+  deleteStudentExamRequest,
+  getStudentExamRequestById,
   createAcademyEvent,
   listAcademyEvents,
   updateAcademyEvent,
@@ -80,6 +85,11 @@ import {
   getStudentOpsSummary,
   listStudentOps,
 } from "./studentOps";
+import {
+  getSchoolDirectoryByName,
+  listSchoolDirectoryStats,
+  searchSchoolDirectory,
+} from "./schoolDirectory";
 import {
   getSmsStatus,
   listNotificationLogs,
@@ -119,6 +129,9 @@ const attendancePinSchema = z
   .string()
   .trim()
   .regex(/^\d{4}$/, "출석번호는 숫자 4자리여야 합니다.");
+const schoolNameSchema = z.string().trim().min(1).max(255);
+const schoolDirectoryLevelSchema = z.enum(["elementary", "middle", "high"]);
+const studentExamRequestStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const studentOpsSavedViewSchema = z.enum([
   "all",
   "unclassified",
@@ -196,6 +209,7 @@ export const appRouter = router({
           phone: z.string().optional(),
           role: z.enum(["student", "parent"]).default("student"),
           attendancePin: z.string().trim().optional(),
+          schoolName: z.string().trim().optional(),
           parentName: z.string().optional(),
           parentPhone: z.string().optional(),
           schoolLevel: schoolLevelSchema.optional(),
@@ -253,6 +267,10 @@ export const appRouter = router({
               throw new Error("학생 계정은 출석번호 4자리가 필요합니다.");
             }
 
+            if (!input.schoolName?.trim()) {
+              throw new Error("학생 계정은 학교명을 입력해야 합니다.");
+            }
+
             const attendancePin = await ensureAttendancePinAvailable(
               input.attendancePin,
             );
@@ -263,6 +281,7 @@ export const appRouter = router({
               email: input.email,
               phone: input.phone || null,
               attendancePin,
+              schoolName: input.schoolName.trim(),
               parentName: input.parentName || null,
               parentPhone: input.parentPhone || null,
               schoolLevel: input.schoolLevel || "other",
@@ -593,6 +612,33 @@ export const appRouter = router({
       }),
   }),
 
+  schoolDirectory: router({
+    search: publicProcedure
+      .input(
+        z.object({
+          query: z.string().default(""),
+          schoolLevel: schoolDirectoryLevelSchema.optional(),
+        }),
+      )
+      .query(({ input }) => {
+        return {
+          items: searchSchoolDirectory(input.query, input.schoolLevel),
+          stats: listSchoolDirectoryStats(),
+        };
+      }),
+
+    getByName: publicProcedure
+      .input(
+        z.object({
+          schoolName: schoolNameSchema,
+          schoolLevel: schoolDirectoryLevelSchema.optional(),
+        }),
+      )
+      .query(({ input }) => {
+        return getSchoolDirectoryByName(input.schoolName, input.schoolLevel);
+      }),
+  }),
+
   portal: router({
     linkedStudents: protectedProcedure.query(async ({ ctx }) => {
       if (!ctx.user) {
@@ -695,6 +741,7 @@ export const appRouter = router({
           email: z.string().email().optional(),
           phone: z.string().optional(),
           attendancePin: attendancePinSchema,
+          schoolName: schoolNameSchema.optional(),
           parentPhone: z.string().optional(),
           parentName: z.string().optional(),
           dateOfBirth: z.string().optional(),
@@ -709,6 +756,7 @@ export const appRouter = router({
           email: input.email || null,
           phone: input.phone || null,
           attendancePin: input.attendancePin,
+          schoolName: input.schoolName?.trim() || null,
           parentPhone: input.parentPhone || null,
           parentName: input.parentName || null,
           dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
@@ -728,6 +776,7 @@ export const appRouter = router({
           email: z.string().email().optional(),
           phone: z.string().optional(),
           attendancePin: attendancePinSchema.nullish(),
+          schoolName: schoolNameSchema.nullish(),
           parentPhone: z.string().optional(),
           parentName: z.string().optional(),
           schoolLevel: schoolLevelSchema.optional(),
@@ -748,6 +797,10 @@ export const appRouter = router({
             updateData.attendancePin === undefined
               ? undefined
               : updateData.attendancePin || null,
+          schoolName:
+            updateData.schoolName === undefined
+              ? undefined
+              : updateData.schoolName?.trim() || null,
           followUpDueDate:
             updateData.followUpDueDate === undefined
               ? undefined
@@ -1275,6 +1328,197 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         return await deleteAcademyEvent(input.id);
+      }),
+
+    listStudentRequests: protectedProcedure
+      .input(
+        z
+          .object({
+            status: studentExamRequestStatusSchema.optional(),
+            studentId: z.number().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role === "student") {
+          const student = await getStudentByUserId(ctx.user.id);
+          if (!student) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "학생 정보를 찾을 수 없습니다.",
+            });
+          }
+
+          return listStudentExamRequests({ studentId: student.id });
+        }
+
+        if (
+          ctx.user.role === "admin" ||
+          ctx.user.role === "superadmin" ||
+          ctx.user.role === "teacher"
+        ) {
+          return listStudentExamRequests({
+            studentId: input?.studentId,
+            status: input?.status,
+          });
+        }
+
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "해당 계정으로는 학생 시험 요청을 볼 수 없습니다.",
+        });
+      }),
+
+    createStudentRequest: studentProcedure
+      .input(
+        z.object({
+          title: z.string().trim().min(1).max(150),
+          examDate: z.string(),
+          examEndDate: z.string().optional(),
+          subject: z.string().trim().optional(),
+          description: z.string().trim().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const student = await getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "학생 정보를 찾을 수 없습니다.",
+          });
+        }
+
+        return createStudentExamRequest({
+          studentId: student.id,
+          schoolNameSnapshot: student.schoolName ?? null,
+          title: input.title.trim(),
+          examDate: new Date(input.examDate),
+          examEndDate: input.examEndDate ? new Date(input.examEndDate) : null,
+          subject: input.subject?.trim() || null,
+          description: input.description?.trim() || null,
+        });
+      }),
+
+    updateStudentRequest: studentProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().trim().min(1).max(150),
+          examDate: z.string(),
+          examEndDate: z.string().optional(),
+          subject: z.string().trim().optional(),
+          description: z.string().trim().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const student = await getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "학생 정보를 찾을 수 없습니다.",
+          });
+        }
+
+        const existing = await getStudentExamRequestById(input.id);
+        if (!existing || existing.studentId !== student.id) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "시험 요청을 찾을 수 없습니다.",
+          });
+        }
+        if (existing.status !== "pending") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "승인 대기 상태에서만 수정할 수 있습니다.",
+          });
+        }
+
+        return updateStudentExamRequest(input.id, {
+          schoolNameSnapshot: student.schoolName ?? null,
+          title: input.title.trim(),
+          examDate: new Date(input.examDate),
+          examEndDate: input.examEndDate ? new Date(input.examEndDate) : null,
+          subject: input.subject?.trim() || null,
+          description: input.description?.trim() || null,
+        });
+      }),
+
+    deleteStudentRequest: studentProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const student = await getStudentByUserId(ctx.user.id);
+        if (!student) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "학생 정보를 찾을 수 없습니다.",
+          });
+        }
+
+        const existing = await getStudentExamRequestById(input.id);
+        if (!existing || existing.studentId !== student.id) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "시험 요청을 찾을 수 없습니다.",
+          });
+        }
+        if (existing.status !== "pending") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "승인 대기 상태에서만 삭제할 수 있습니다.",
+          });
+        }
+
+        return deleteStudentExamRequest(input.id);
+      }),
+
+    reviewStudentRequest: adminProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          status: z.enum(["approved", "rejected"]),
+          reviewNote: z.string().trim().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const existing = await getStudentExamRequestById(input.id);
+        if (!existing) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "시험 요청을 찾을 수 없습니다.",
+          });
+        }
+        if (existing.status !== "pending") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "이미 처리된 요청입니다.",
+          });
+        }
+
+        let linkedExamScheduleId = existing.linkedExamScheduleId ?? null;
+
+        if (input.status === "approved") {
+          const createdExam: any = await createExamSchedule({
+            examName: existing.title,
+            examDate: new Date(existing.examDate),
+            examEndDate: existing.examEndDate
+              ? new Date(existing.examEndDate)
+              : undefined,
+            subject: existing.subject || undefined,
+            description: existing.description || undefined,
+          });
+
+          linkedExamScheduleId =
+            extractInsertedId(createdExam) ??
+            (typeof createdExam?.id === "number" ? createdExam.id : null);
+        }
+
+        return updateStudentExamRequest(existing.id, {
+          status: input.status,
+          reviewedByUserId: ctx.user.id,
+          reviewedAt: new Date(),
+          reviewNote: input.reviewNote?.trim() || null,
+          linkedExamScheduleId,
+        });
       }),
   }),
 
